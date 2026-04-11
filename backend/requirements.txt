@@ -1,0 +1,27 @@
+# Django 核心
+Django==4.2.9
+djangorestframework==3.14.0
+django-cors-headers==4.3.1
+
+# 数据库
+PyMySQL==1.1.0
+mysqlclient==2.2.4
+
+# 数据处理与分析
+pandas==2.1.4
+numpy==1.26.3
+matplotlib==3.8.2
+
+# 机器学习（CPU 版本，如需 GPU 请参考 https://pytorch.org/）
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+torch==2.1.2
+torchvision==0.16.2
+scikit-learn==1.3.2
+joblib==1.3.2
+
+# 工具库
+requests==2.31.0
+python-dotenv==1.0.0
+Pillow==10.2.0
+openpyxl==3.1.2
+xlrd==2.0.1
