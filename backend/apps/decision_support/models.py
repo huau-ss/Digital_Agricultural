@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 class TradeInfo(models.Model):
@@ -73,3 +74,108 @@ class TradeInfo(models.Model):
 
     def __str__(self):
         return f"{self.get_info_type_display()} - {self.product.name} - {self.publisher.username}"
+
+
+class Order(models.Model):
+    """订单模型"""
+
+    ORDER_STATUS_CHOICES = [
+        ('pending', '待确认'),
+        ('confirmed', '已确认'),
+        ('shipped', '已发货'),
+        ('completed', '已完成'),
+        ('cancelled', '已取消'),
+    ]
+
+    order_no = models.CharField(max_length=32, unique=True, verbose_name='订单编号')
+    buyer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='buyer_orders',
+        verbose_name='买方'
+    )
+    seller = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='seller_orders',
+        verbose_name='卖方'
+    )
+    trade_info = models.ForeignKey(
+        TradeInfo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='orders',
+        verbose_name='关联供需信息'
+    )
+    product = models.ForeignKey(
+        'data_collection.AgriculturalProduct',
+        on_delete=models.CASCADE,
+        related_name='orders',
+        verbose_name='农产品'
+    )
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='数量')
+    unit = models.CharField(max_length=20, default='斤', verbose_name='单位')
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='单价(元/斤)')
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, verbose_name='总金额')
+    status = models.CharField(
+        max_length=20,
+        choices=ORDER_STATUS_CHOICES,
+        default='pending',
+        verbose_name='订单状态'
+    )
+    buyer_contact = models.CharField(max_length=20, blank=True, verbose_name='买方联系方式')
+    seller_contact = models.CharField(max_length=20, blank=True, verbose_name='卖方联系方式')
+    delivery_address = models.CharField(max_length=200, blank=True, verbose_name='收货地址')
+    remark = models.TextField(blank=True, verbose_name='备注')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'order'
+        verbose_name = '订单'
+        verbose_name_plural = '订单'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['order_no']),
+            models.Index(fields=['buyer']),
+            models.Index(fields=['seller']),
+            models.Index(fields=['status']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.order_no} - {self.product.name}"
+
+    def save(self, *args, **kwargs):
+        if not self.order_no:
+            import uuid
+            self.order_no = f"ORD{timezone.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:6].upper()}"
+        if self.unit_price and self.quantity:
+            self.total_amount = self.unit_price * self.quantity
+        super().save(*args, **kwargs)
+
+
+class OrderStatusLog(models.Model):
+    """订单状态变更日志"""
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='status_logs')
+    from_status = models.CharField(max_length=20, blank=True, verbose_name='原状态')
+    to_status = models.CharField(max_length=20, verbose_name='新状态')
+    operator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        verbose_name='操作人'
+    )
+    remark = models.TextField(blank=True, verbose_name='备注')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'order_status_log'
+        verbose_name = '订单状态日志'
+        verbose_name_plural = '订单状态日志'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.order.order_no} - {self.from_status} -> {self.to_status}"

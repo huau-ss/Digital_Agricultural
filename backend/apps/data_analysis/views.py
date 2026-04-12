@@ -29,16 +29,24 @@ class PricePredictionView(APIView):
 
         if not product_id:
             return Response(
-                {'success': False, 'error': 'product_id 是必需参数'},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    'success': False,
+                    'error': 'product_id 是必需参数',
+                    'code': 400
+                },
+                status=status.HTTP_200_OK  # 返回 200，让前端能获取错误信息
             )
 
         try:
             product_id = int(product_id)
         except ValueError:
             return Response(
-                {'success': False, 'error': 'product_id 必须是整数'},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    'success': False,
+                    'error': 'product_id 必须是整数',
+                    'code': 400
+                },
+                status=status.HTTP_200_OK
             )
 
         # 验证产品存在
@@ -46,8 +54,12 @@ class PricePredictionView(APIView):
             product = AgriculturalProduct.objects.get(id=product_id)
         except AgriculturalProduct.DoesNotExist:
             return Response(
-                {'success': False, 'error': f'产品 ID {product_id} 不存在'},
-                status=status.HTTP_404_NOT_FOUND
+                {
+                    'success': False,
+                    'error': f'产品 ID {product_id} 不存在',
+                    'code': 404
+                },
+                status=status.HTTP_200_OK
             )
 
         days = int(request.query_params.get('days', 7))
@@ -55,16 +67,11 @@ class PricePredictionView(APIView):
 
         result = predict_product_price(product_id, future_days=days)
 
-        if not result.get('success'):
-            return Response(
-                {'success': False, 'error': result.get('error', '预测失败')},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         # 添加产品信息
         result['product_name'] = product.name
         result['product_category'] = product.get_category_display()
 
+        # 始终返回 200，让前端能获取完整响应
         return Response(result)
 
 

@@ -94,9 +94,17 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="viewDetail(row)">详情</el-button>
+            <!-- 采购商看到供应信息 - 可购买 -->
+            <el-button link type="success" v-if="canBuy(row)" @click="openBuyDialog(row)">
+              购买
+            </el-button>
+            <!-- 农户看到求购信息 - 可接受 -->
+            <el-button link type="success" v-if="canAccept(row)" @click="openAcceptDialog(row)">
+              接受订单
+            </el-button>
             <el-button link type="danger" v-if="row.publisher === currentUserId" @click="handleDelete(row)">
               删除
             </el-button>
@@ -153,6 +161,14 @@
         </div>
         <div class="card-actions">
           <el-button type="primary" size="small" @click="viewDetail(item)">详情</el-button>
+          <!-- 采购商看到供应信息 - 可购买 -->
+          <el-button type="success" size="small" v-if="canBuy(item)" @click="openBuyDialog(item)">
+            购买
+          </el-button>
+          <!-- 农户看到求购信息 - 可接受 -->
+          <el-button type="success" size="small" v-if="canAccept(item)" @click="openAcceptDialog(item)">
+            接受订单
+          </el-button>
           <el-button type="danger" size="small" v-if="item.publisher === currentUserId" @click="handleDelete(item)">
             删除
           </el-button>
@@ -250,6 +266,45 @@
       </div>
       <template #footer>
         <el-button @click="detailDialogVisible = false">关闭</el-button>
+        <!-- 采购商看到供应信息 -->
+        <el-button type="success" v-if="currentItem && canBuy(currentItem)" @click="openBuyDialog(currentItem)">
+          购买
+        </el-button>
+        <!-- 农户看到求购信息 -->
+        <el-button type="success" v-if="currentItem && canAccept(currentItem)" @click="openAcceptDialog(currentItem)">
+          接受订单
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 购买/接受订单弹窗 -->
+    <el-dialog v-model="orderDialogVisible" :title="orderDialogTitle" width="500px">
+      <el-form ref="orderFormRef" :model="orderForm" :rules="orderRules" label-width="100px">
+        <el-form-item label="农产品">
+          <span>{{ orderForm.product_name }}</span>
+        </el-form-item>
+        <el-form-item label="数量" prop="quantity">
+          <el-input-number v-model="orderForm.quantity" :min="1" :max="orderForm.max_quantity" :precision="2" style="width: 100%" />
+          <span class="form-tip">最大: {{ orderForm.max_quantity }} {{ orderForm.unit }}</span>
+        </el-form-item>
+        <el-form-item label="单价(元/斤)" prop="unit_price">
+          <el-input-number v-model="orderForm.unit_price" :min="0.01" :precision="2" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="收货地址" prop="delivery_address">
+          <el-input v-model="orderForm.delivery_address" placeholder="请输入收货地址" />
+        </el-form-item>
+        <el-form-item label="联系电话" prop="buyer_contact">
+          <el-input v-model="orderForm.buyer_contact" placeholder="请输入联系电话" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="orderForm.remark" type="textarea" :rows="2" placeholder="选填备注信息" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="orderDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitLoading" @click="handleSubmitOrder">
+          确认{{ orderDialogType === 'buy' ? '购买' : '接受' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -262,6 +317,7 @@ import { Search, Plus, Grid, Menu } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { getTradeInfoList, createTradeInfo, updateTradeInfo, deleteTradeInfo } from '@/api/tradeInfo'
 import { getProducts } from '@/api/dataCollection'
+import { createOrder, acceptOrder } from '@/api/order'
 
 const userStore = useUserStore()
 const currentUserId = computed(() => userStore.userInfo?.id)
@@ -288,9 +344,12 @@ const searchForm = reactive({
 
 const publishDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
+const orderDialogVisible = ref(false)
 const isEdit = ref(false)
 const currentItem = ref(null)
 const publishFormRef = ref(null)
+const orderFormRef = ref(null)
+const orderDialogType = ref('buy') // 'buy' 购买 或 'accept' 接受订单
 
 const publishForm = reactive({
   info_type: 'supply',
@@ -303,11 +362,43 @@ const publishForm = reactive({
   description: ''
 })
 
+const orderForm = reactive({
+  trade_info_id: null,
+  product_id: null,
+  product_name: '',
+  quantity: 100,
+  max_quantity: 0,
+  unit: '斤',
+  unit_price: null,
+  delivery_address: '',
+  buyer_contact: '',
+  remark: ''
+})
+
 const publishRules = {
   info_type: [{ required: true, message: '请选择信息类型', trigger: 'change' }],
   product: [{ required: true, message: '请选择农产品', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }]
 }
+
+const orderRules = {
+  quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
+  unit_price: [{ required: true, message: '请输入单价', trigger: 'blur' }],
+  delivery_address: [{ required: true, message: '请输入收货地址', trigger: 'blur' }],
+  buyer_contact: [{ required: true, message: '请输入联系电话', trigger: 'blur' }]
+}
+
+// 判断采购商是否可以购买（看到农户的供应信息，且状态为进行中）
+const canBuy = (item) => {
+  return userRole.value === 'buyer' && item.info_type === 'supply' && item.status === 'active' && item.publisher !== currentUserId.value
+}
+
+// 判断农户是否可以接受（看到采购商的求购信息，且状态为进行中）
+const canAccept = (item) => {
+  return userRole.value === 'farmer' && item.info_type === 'demand' && item.status === 'active' && item.publisher !== currentUserId.value
+}
+
+const orderDialogTitle = computed(() => orderDialogType.value === 'buy' ? '购买商品' : '接受订单')
 
 const loadProducts = async () => {
   try {
@@ -402,6 +493,79 @@ const handleSubmit = async () => {
 const viewDetail = (row) => {
   currentItem.value = row
   detailDialogVisible.value = true
+}
+
+// 打开购买对话框
+const openBuyDialog = (item) => {
+  orderDialogType.value = 'buy'
+  orderForm.trade_info_id = item.id
+  orderForm.product_id = item.product
+  orderForm.product_name = item.product_name
+  orderForm.quantity = Number(item.quantity) || 100
+  orderForm.max_quantity = Number(item.quantity) || 0
+  orderForm.unit = item.unit || '斤'
+  orderForm.unit_price = item.expected_price ? Number(item.expected_price) : null
+  orderForm.delivery_address = ''
+  orderForm.buyer_contact = userStore.userInfo?.phone || ''
+  orderForm.remark = ''
+  orderDialogVisible.value = true
+}
+
+// 打开接受订单对话框
+const openAcceptDialog = (item) => {
+  orderDialogType.value = 'accept'
+  orderForm.trade_info_id = item.id
+  orderForm.product_id = item.product
+  orderForm.product_name = item.product_name
+  orderForm.quantity = Number(item.quantity) || 100
+  orderForm.max_quantity = Number(item.quantity) || 0
+  orderForm.unit = item.unit || '斤'
+  orderForm.unit_price = item.expected_price ? Number(item.expected_price) : null
+  orderForm.delivery_address = ''
+  orderForm.buyer_contact = userStore.userInfo?.phone || ''
+  orderForm.remark = ''
+  orderDialogVisible.value = true
+}
+
+// 提交订单
+const handleSubmitOrder = async () => {
+  if (!orderFormRef.value) return
+  await orderFormRef.value.validate(async (valid) => {
+    if (!valid) return
+
+    submitLoading.value = true
+    try {
+      const orderData = {
+        trade_info: orderForm.trade_info_id,
+        product: orderForm.product_id,
+        quantity: orderForm.quantity,
+        unit: orderForm.unit,
+        unit_price: orderForm.unit_price,
+        delivery_address: orderForm.delivery_address,
+        buyer_contact: orderForm.buyer_contact,
+        remark: orderForm.remark
+      }
+
+      if (orderDialogType.value === 'buy') {
+        // 采购商购买
+        await createOrder(orderData)
+        ElMessage.success('购买成功')
+      } else {
+        // 农户接受订单
+        await acceptOrder(orderData)
+        ElMessage.success('订单已接受')
+      }
+
+      orderDialogVisible.value = false
+      detailDialogVisible.value = false
+      loadData()
+    } catch (error) {
+      const msg = error?.response?.data?.error || error?.response?.data?.detail || '操作失败'
+      ElMessage.error(msg)
+    } finally {
+      submitLoading.value = false
+    }
+  })
 }
 
 const handleDelete = async (row) => {

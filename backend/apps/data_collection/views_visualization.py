@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db.models import Avg, Max, Min, Sum, Count
+from django.db.models import Avg, Max, Min, Sum, Count, Q as ModelQ
 from datetime import datetime, timedelta
 from .models import AgriculturalProduct, CleanedPriceData
 from .serializers import CleanedPriceDataSerializer
@@ -186,8 +186,16 @@ class VisualizationViewSet(viewsets.ViewSet):
     """可视化数据视图集"""
 
     def list(self, request):
-        """获取所有可用产品列表"""
-        products = AgriculturalProduct.objects.filter(is_active=True).values('id', 'name', 'category')
+        """获取所有可用产品列表，按最近30天数据量排序"""
+        today = datetime.now().date()
+        thirty_days_ago = today - timedelta(days=30)
+
+        from django.db.models import Count
+
+        products = AgriculturalProduct.objects.filter(is_active=True).annotate(
+            recent_count=Count('cleaned_price_data', filter=ModelQ(cleaned_price_data__date__gte=thirty_days_ago))
+        ).values('id', 'name', 'category', 'recent_count').order_by('-recent_count', 'id')
+
         return Response(list(products))
 
     @action(detail=False, methods=['get'])

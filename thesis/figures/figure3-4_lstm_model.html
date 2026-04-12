@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>LSTM模型结构图</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            padding: 40px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 900px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>图3-4 LSTM价格预测模型结构图</h1>
+        <pre class="mermaid">
+flowchart LR
+    subgraph 输入层["输入层"]
+        I1["X<sub>t-6</sub>"]
+        I2["X<sub>t-5</sub>"]
+        I3["X<sub>t-4</sub>"]
+        I4["X<sub>t-3</sub>"]
+        I5["X<sub>t-2</sub>"]
+        I6["X<sub>t-1</sub>"]
+        I7["X<sub>t</sub>"]
+    end
+    
+    subgraph LSTM层1["LSTM层1 (64隐藏单元)"]
+        L1["LSTM Cell"]
+    end
+    
+    subgraph LSTM层2["LSTM层2 (64隐藏单元)"]
+        L2["LSTM Cell"]
+    end
+    
+    subgraph Dropout["Dropout (0.2)"]
+        D["丢弃层"]
+    end
+    
+    subgraph 输出层["输出层"]
+        O1["Dense(64→1)"]
+        O2["Y<sub>t+1</sub>"]
+    end
+    
+    I1 & I2 & I3 & I4 & I5 & I6 & I7 --> L1
+    L1 --> L2
+    L2 --> D
+    D --> O1
+    O1 --> O2
+    
+    style 输入层 fill:#e3f2fd
+    style LSTM层1 fill:#e8f5e9
+    style LSTM层2 fill:#e8f5e9
+    style Dropout fill:#fff3e0
+    style 输出层 fill:#fce4ec
+        </pre>
+    </div>
+    <script>mermaid.initialize({startOnLoad:true});</script>
+</body>
+</html>

@@ -3,7 +3,7 @@ from .views import (
     PricePredictionView, ProductListForPredictionView, ModelInfoView
 )
 from .warning_views import TriggerWarningCheckView, CheckProductWarningView, ListProductsForWarningView
-from .dashboard_views import DashboardSummaryView
+from .dashboard_views import DashboardSummaryView, RecentWarningsView
 
 app_name = 'data_analysis'
 
@@ -18,4 +18,6 @@ urlpatterns = [
     path('warning/products/', ListProductsForWarningView.as_view(), name='warning-products'),
     # Dashboard 仪表盘
     path('dashboard/summary/', DashboardSummaryView.as_view(), name='dashboard-summary'),
+    # 今日预警
+    path('warning/recent/', RecentWarningsView.as_view(), name='recent-warnings'),
 ]

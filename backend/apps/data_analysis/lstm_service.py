@@ -33,7 +33,9 @@ import joblib
 from django.conf import settings
 
 # 模型保存路径
-MODEL_DIR = os.path.join(settings.BASE_DIR, 'models', 'lstm')
+# 优先使用产品专用模型目录
+MODEL_DIR = os.path.join(settings.BASE_DIR, 'models', 'lstm_per_product')
+GENERAL_MODEL_DIR = os.path.join(settings.BASE_DIR, 'models', 'lstm')
 
 
 class LSTMModel(nn.Module):
@@ -73,14 +75,30 @@ class LSTMPredictor:
         self.device = torch.device('cpu')
 
     def get_model_path(self):
+        """获取模型路径，优先使用产品专用模型"""
         if self.product_id:
-            return os.path.join(MODEL_DIR, f'lstm_product_{self.product_id}.pth')
-        return os.path.join(MODEL_DIR, 'lstm_model.pth')
+            # 优先：产品专用模型
+            product_model_path = os.path.join(MODEL_DIR, f'lstm_p{self.product_id}.pth')
+            if os.path.exists(product_model_path):
+                return product_model_path
+            # 其次：通用模型
+            general_path = os.path.join(GENERAL_MODEL_DIR, 'lstm_model.pth')
+            if os.path.exists(general_path):
+                return general_path
+        return os.path.join(GENERAL_MODEL_DIR, 'lstm_model.pth')
 
     def get_scaler_path(self):
+        """获取归一化器路径，优先使用产品专用 scaler"""
         if self.product_id:
-            return os.path.join(MODEL_DIR, f'scaler_{self.product_id}.pkl')
-        return os.path.join(MODEL_DIR, 'scaler.pkl')
+            # 优先：产品专用 scaler
+            product_scaler_path = os.path.join(MODEL_DIR, f'scaler_p{self.product_id}.pkl')
+            if os.path.exists(product_scaler_path):
+                return product_scaler_path
+            # 其次：通用 scaler
+            general_path = os.path.join(GENERAL_MODEL_DIR, 'scaler.pkl')
+            if os.path.exists(general_path):
+                return general_path
+        return os.path.join(GENERAL_MODEL_DIR, 'scaler.pkl')
 
     def load_model_and_scaler(self):
         """加载预训练模型和归一化器"""
@@ -118,14 +136,25 @@ class LSTMPredictor:
 
     def predict_future(self, historical_prices, future_days=7):
         """预测未来价格（自回归预测）"""
-        if len(historical_prices) < self.SEQ_LENGTH:
-            raise ValueError(f"历史数据不足，需要至少 {self.SEQ_LENGTH} 天数据")
+        if len(historical_prices) < 5:
+            raise ValueError(f"历史数据不足，需要至少 5 天数据，当前只有 {len(historical_prices)} 天")
 
         loaded = self.load_model_and_scaler()
         if not loaded[0]:
             raise FileNotFoundError("未找到预训练模型，请先运行训练脚本！")
 
+        # 计算当前数据的 min/max 用于归一化（根据数据本身而非全局 scaler）
         prices_array = np.array(historical_prices).reshape(-1, 1)
+        data_min = prices_array.min()
+        data_max = prices_array.max()
+
+        # 如果数据范围太小（可能全是相同值），使用默认范围
+        if data_max - data_min < 0.1:
+            data_min = data_min - 0.5
+            data_max = data_max + 0.5
+
+        # 使用模型训练时的 scaler 进行归一化（基于全局数据范围）
+        # 这样可以保证与训练时的一致性
         scaled_history = self.scaler.transform(prices_array)
 
         last_date = datetime.now().date()
@@ -137,6 +166,7 @@ class LSTMPredictor:
             dates.append(d.isoformat())
             is_prediction.append(False)
 
+        # 只用最后 SEQ_LENGTH 天数据
         current_seq = scaled_history[-self.SEQ_LENGTH:].reshape(1, -1, 1)
         current_seq = torch.FloatTensor(current_seq).to(self.device)
 
@@ -154,7 +184,22 @@ class LSTMPredictor:
 
         predictions = np.array(predictions).reshape(-1, 1)
         predictions_original = self.scaler.inverse_transform(predictions).flatten()
-        predictions_original = [round(float(p), 2) for p in predictions_original]
+
+        # 添加约束：预测值不应偏离历史数据太远
+        history_mean = np.mean(historical_prices)
+        history_std = np.std(historical_prices) if np.std(historical_prices) > 0 else 0.5
+
+        constrained_predictions = []
+        for p in predictions_original:
+            # 限制预测值在历史均值 ± 2 倍标准差范围内（更严格的约束）
+            lower = history_mean - 2 * history_std
+            upper = history_mean + 2 * history_std
+            if lower < 0:
+                lower = 0
+            constrained_p = max(lower, min(upper, p))
+            constrained_predictions.append(constrained_p)
+
+        predictions_original = [round(float(p), 2) for p in constrained_predictions]
 
         for i in range(future_days):
             future_date = last_date + timedelta(days=i + 1)
@@ -214,12 +259,19 @@ def get_product_price_history(product_id, days=60):
 
 def predict_product_price(product_id, future_days=7):
     """预测产品未来价格的主函数"""
-    historical_prices = get_product_price_history(product_id, days=LSTMPredictor.SEQ_LENGTH + 30)
+    # 尝试获取最多60天历史数据
+    historical_prices = get_product_price_history(product_id, days=60)
 
-    if len(historical_prices) < LSTMPredictor.SEQ_LENGTH + 5:
+    # 降低最低要求，从12天改为7天（SEQ_LENGTH=7）
+    min_required = 10  # 至少需要10天数据才能预测
+
+    if len(historical_prices) < min_required:
         return {
             'success': False,
-            'error': f'历史数据不足，需要至少 {LSTMPredictor.SEQ_LENGTH + 5} 天，当前只有 {len(historical_prices)} 天'
+            'error': f'历史数据不足，需要至少 {min_required} 天，当前只有 {len(historical_prices)} 天',
+            'product_id': product_id,
+            'historical': {'dates': [], 'prices': []},
+            'prediction': {'dates': [], 'prices': []}
         }
 
     try:
@@ -249,8 +301,19 @@ def predict_product_price(product_id, future_days=7):
             }
         }
 
+    except FileNotFoundError as e:
+        return {
+            'success': False,
+            'error': '模型文件不存在，请先训练模型',
+            'product_id': product_id,
+            'historical': {'dates': [], 'prices': []},
+            'prediction': {'dates': [], 'prices': []}
+        }
     except Exception as e:
         return {
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'product_id': product_id,
+            'historical': {'dates': [], 'prices': []},
+            'prediction': {'dates': [], 'prices': []}
         }

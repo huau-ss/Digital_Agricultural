@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>系统E-R图</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            padding: 40px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 1000px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>图3-3 系统E-R图</h1>
+        <pre class="mermaid">
+erDiagram
+    CUSTOM_USER ||--o{ SYSTEM_MESSAGE : "发送"
+    CUSTOM_USER {
+        int id PK
+        string username
+        string email
+        string password
+        string role
+        boolean is_active
+        datetime created_at
+    }
+    
+    AGRICULTURAL_PRODUCT ||--o{ PRICE_HISTORY : "拥有"
+    AGRICULTURAL_PRODUCT ||--o{ CLEANED_PRICE_DATA : "拥有"
+    AGRICULTURAL_PRODUCT ||--o{ TRADE_INFO : "关联"
+    AGRICULTURAL_PRODUCT {
+        int id PK
+        string name
+        string category
+        string origin
+        string unit
+        boolean is_active
+    }
+    
+    PRICE_HISTORY {
+        int id PK
+        int product_id FK
+        date date
+        string market_name
+        decimal avg_price
+        decimal max_price
+        decimal min_price
+        bigint volume
+    }
+    
+    CLEANED_PRICE_DATA {
+        int id PK
+        int product_id FK
+        date date
+        string market_name
+        decimal avg_price
+        decimal max_price
+        decimal min_price
+        bigint volume
+        boolean is_outlier
+    }
+    
+    CUSTOM_USER ||--o{ TRADE_INFO : "发布"
+    TRADE_INFO {
+        int id PK
+        int product_id FK
+        int publisher_id FK
+        string info_type
+        string title
+        text content
+        decimal price
+        string status
+    }
+    
+    SYSTEM_MESSAGE {
+        int id PK
+        int user_id FK
+        string title
+        text content
+        string message_type
+        string priority
+        boolean is_read
+    }
+    
+    style AGRICULTURAL_PRODUCT fill:#c8e6c9
+    style PRICE_HISTORY fill:#bbdefb
+    style CLEANED_PRICE_DATA fill:#ffe0b2
+    style CUSTOM_USER fill:#e1bee7
+    style SYSTEM_MESSAGE fill:#b2dfdb
+    style TRADE_INFO fill:#d1c4e9
+        </pre>
+    </div>
+    <script>mermaid.initialize({startOnLoad:true});</script>
+</body>
+</html>

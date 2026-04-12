@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>系统架构图</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            padding: 40px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 1000px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>图3-5 系统技术架构图</h1>
+        <pre class="mermaid">
+flowchart TB
+    subgraph 前端["前端展示层 (Vue 3)"]
+        FE1["Vue 3组件"]
+        FE2["Element Plus"]
+        FE3["ECharts图表"]
+        FE4["Axios请求"]
+    end
+    
+    subgraph 后端["后端服务层 (Django)"]
+        BE1["Django REST Framework"]
+        BE2["视图层 Views"]
+        BE3["序列化器 Serializers"]
+        BE4["LSTM服务"]
+    end
+    
+    subgraph 数据层["数据存储层"]
+        DB1["MySQL数据库"]
+        DB2["模型文件 .pth"]
+        DB3["归一化器 .pkl"]
+    end
+    
+    subgraph 外部["外部数据源"]
+        EXT1["农产品批发市场价格数据"]
+        EXT2["农业部数据接口"]
+    end
+    
+    FE1 --> FE2
+    FE1 --> FE3
+    FE1 --> FE4
+    FE4 <--> BE1
+    BE1 --> BE2
+    BE2 --> BE3
+    BE2 --> BE4
+    BE4 <--> DB2
+    BE4 <--> DB3
+    BE3 --> DB1
+    EXT1 --> BE2
+    EXT2 --> BE2
+    
+    style 前端 fill:#e3f2fd
+    style 后端 fill:#e8f5e9
+    style 数据层 fill:#fff3e0
+    style 外部 fill:#fce4ec
+        </pre>
+    </div>
+    <script>mermaid.initialize({startOnLoad:true});</script>
+</body>
+</html>

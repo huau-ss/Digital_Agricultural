@@ -51,7 +51,7 @@ const routes = [
         path: 'data-screen',
         name: 'DataScreen',
         component: () => import('@/views/dashboard/DataDashboard.vue'),
-        meta: { title: '数据大屏' }
+        meta: { title: '数据大屏', requiresAuth: false }
       },
       {
         path: 'profit-simulation',
@@ -74,8 +74,8 @@ const routes = [
       {
         path: 'orders',
         name: 'Orders',
-        component: () => import('@/views/dashboard/role/BuyerDashboard.vue'),
-        meta: { title: '订单管理', roles: ['buyer'] }
+        component: () => import('@/views/trade/Orders.vue'),
+        meta: { title: '订单管理', roles: ['buyer', 'farmer'] }
       },
       {
         path: 'users',
@@ -108,6 +108,15 @@ router.beforeEach(async (to, from, next) => {
   if (userStore.isLoggedIn && to.path === '/login') {
     next('/dashboard/home')
     return
+  }
+  
+  // 如果有 token 但没有 userInfo，尝试获取用户信息
+  if (userStore.isLoggedIn && !userStore.userInfo) {
+    try {
+      await userStore.fetchUserInfo()
+    } catch (error) {
+      console.warn('获取用户信息失败', error)
+    }
   }
   
   if (targetRoles && userStore.isLoggedIn) {

@@ -45,7 +45,7 @@ class PriceDataCleaner:
 
     def load_data(self, days_back: int = None, product_id: int = None) -> pd.DataFrame:
         """加载价格数据"""
-        queryset = PriceHistory.objects.filter(remarks__isnull=True).exclude(remarks='异常值')
+        queryset = PriceHistory.objects.all()
 
         if product_id:
             queryset = queryset.filter(product_id=product_id)

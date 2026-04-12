@@ -116,14 +116,7 @@
         <div class="chart-card">
           <div class="card-header">
             <h3>地区价格对比</h3>
-            <el-select v-model="comparisonProductId" placeholder="选择农产品" size="small" @change="loadRegionComparison" style="width: 130px;">
-              <el-option
-                v-for="product in products"
-                :key="product.id"
-                :label="product.name"
-                :value="product.id"
-              />
-            </el-select>
+            <span class="product-label">当前产品: {{ selectedProductName }}</span>
           </div>
           <div class="card-body">
             <div ref="regionChartRef" style="width: 100%; height: 280px;"></div>
@@ -141,7 +134,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { Loading } from '@element-plus/icons-vue'
 import {
@@ -156,7 +149,6 @@ import { getPricePrediction } from '@/api/prediction'
 const loading = ref(false)
 const products = ref([])
 const selectedProductId = ref(null)
-const comparisonProductId = ref(null)
 const selectedDays = ref(30)
 const predictionDays = ref(7)
 
@@ -175,6 +167,13 @@ const priceStats = reactive({
 const currentPrice = ref(null)
 const priceTrendData = ref([])
 const regionComparisonData = ref([])
+
+// 计算属性：获取当前选中产品的名称
+const selectedProductName = computed(() => {
+  if (!selectedProductId.value) return '-'
+  const product = products.value.find(p => p.id === selectedProductId.value)
+  return product ? product.name : '-'
+})
 const predictionData = ref({
   historical: { dates: [], prices: [] },
   prediction: { dates: [], prices: [] }
@@ -197,23 +196,53 @@ const predictionStatus = computed(() => {
 })
 
 // 初始化地图
+const mapRegistered = ref(false)
 const initMapChart = () => {
   if (!mapChartRef.value) return
   mapChart = echarts.init(mapChartRef.value)
-  import('@/assets/china.json').then((chinaJson) => {
+  import('@/assets/china.json').then((module) => {
+    // 处理动态导入的结果，可能是 default 或直接是数据
+    const chinaData = module.default || module
     if (!echarts.getMap('china')) {
-      echarts.registerMap('china', chinaJson.default)
+      echarts.registerMap('china', chinaData)
+      mapRegistered.value = true
+    } else {
+      mapRegistered.value = true
     }
+    updateMapChart()
+  }).catch(err => {
+    console.error('加载中国地图失败:', err)
+    mapRegistered.value = false
+    // 即使地图加载失败，也尝试更新图表
     updateMapChart()
   })
 }
 
 const updateMapChart = () => {
   if (!mapChart) return
-  if (!echarts.getMap('china')) return
 
   const mapData = priceStats._mapData || []
-  const maxValue = mapData.length > 0 ? Math.max(...mapData.map(d => d.value || 0), 1) : 1
+
+  // 如果地图未注册，显示空白提示
+  if (!mapRegistered.value) {
+    mapChart.setOption({
+      title: { text: '地图加载中...', left: 'center', top: 'center', textStyle: { color: '#999' } },
+      xAxis: { show: false },
+      yAxis: { show: false }
+    })
+    return
+  }
+
+  if (mapData.length === 0) {
+    mapChart.setOption({
+      title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 16 } },
+      xAxis: { show: false },
+      yAxis: { show: false }
+    })
+    return
+  }
+
+  const maxValue = Math.max(...mapData.map(d => d.value || 0), 1)
 
   const option = {
     tooltip: {
@@ -259,18 +288,23 @@ const initLineChart = () => {
 const updateLineChart = () => {
   if (!lineChart) return
 
+  const trendData = priceTrendData.value
+  if (!trendData || trendData.length === 0) {
+    return
+  }
+
   const option = {
     tooltip: { trigger: 'axis', formatter: '{b}<br/>{a}: {c} 元/公斤' },
     xAxis: {
       type: 'category',
-      data: priceTrendData.value.map(d => d.date?.slice(5) || ''),
+      data: trendData.map(d => d.date?.slice(5) || ''),
       axisLabel: { rotate: 45, fontSize: 10 }
     },
     yAxis: { type: 'value', name: '价格(元/公斤)' },
     series: [{
       name: '历史价格',
       type: 'line',
-      data: priceTrendData.value.map(d => d.price),
+      data: trendData.map(d => d.price),
       smooth: true,
       areaStyle: {
         color: {
@@ -300,28 +334,37 @@ const updateRegionChart = () => {
   if (!regionChart) return
 
   const data = regionComparisonData.value
+
+  // 检查数据
+  if (!data || data.length === 0) {
+    regionChart.setOption({
+      title: { text: '暂无地区对比数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 16 } }
+    })
+    return
+  }
+
   const option = {
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
         const item = data[params[0].dataIndex]
         return `${params[0].name}<br/>
-          地区: ${item.province}<br/>
-          市场: ${item.market_name}<br/>
+          地区: ${item.province || '未知'}<br/>
+          市场: ${item.market_name || '未知'}<br/>
           平均价格: ${params[0].value} 元/公斤<br/>
-          数据量: ${item.record_count} 条`
+          数据量: ${item.record_count || 0} 条`
       }
     },
     xAxis: {
       type: 'category',
-      data: data.map(d => d.market_name),
+      data: data.map(d => d.market_name || ''),
       axisLabel: { rotate: 30, fontSize: 10 }
     },
     yAxis: { type: 'value', name: '价格(元/公斤)' },
     series: [{
       name: '平均价格',
       type: 'bar',
-      data: data.map(d => d.avg_price),
+      data: data.map(d => d.avg_price || 0),
       itemStyle: {
         color: (params) => {
           const colors = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#00BCD4', '#9C27B0', '#FF9800']
@@ -387,14 +430,16 @@ const updatePredictionChart = () => {
 const loadProducts = async () => {
   try {
     const res = await getProducts()
-    if (res && Array.isArray(res)) {
+    if (res && Array.isArray(res) && res.length > 0) {
       products.value = res
-      if (!selectedProductId.value && res.length > 0) {
-        selectedProductId.value = res[0].id
-      }
+      // 使用第一个有数据的产品（按最近30天数据量排序）
+      selectedProductId.value = res[0].id
+      return true
     }
+    return false
   } catch (error) {
     console.error('加载产品列表失败:', error)
+    return false
   }
 }
 
@@ -416,11 +461,20 @@ const loadPriceTrend = async () => {
       product_id: selectedProductId.value,
       days: selectedDays.value
     })
-    if (res && res.data) {
+    console.log('价格走势API响应:', res)
+    // 处理响应数据 - API返回 dates 和 prices
+    if (res && Array.isArray(res.dates) && res.dates.length > 0) {
+      priceTrendData.value = res.dates.map((d, i) => ({
+        date: d,
+        price: res.prices?.[i] || 0
+      }))
+    } else if (res && Array.isArray(res.data) && res.data.length > 0) {
       priceTrendData.value = res.data
-      currentPrice.value = res.prices?.[res.prices.length - 1] || null
-      updateLineChart()
+    } else {
+      priceTrendData.value = []
     }
+    // 无论数据是否为空都更新图表
+    updateLineChart()
   } catch (error) {
     console.error('加载价格走势失败:', error)
   }
@@ -431,30 +485,63 @@ const loadProvinceHeatmap = async () => {
     const res = await getProvinceHeatmap({
       product_id: selectedProductId.value || undefined
     })
+    console.log('热力图API响应:', res)
     if (res) {
-      priceStats._mapData = res.map_data || []
+      // 处理 map_data
+      if (res.map_data) {
+        priceStats._mapData = res.map_data
+      } else if (res.province_data) {
+        // 有时候返回的是 province_data 而不是 map_data
+        priceStats._mapData = res.province_data
+      }
+      // 处理统计数据
       if (res.statistics) {
         priceStats.avg_price = res.statistics.avg_price
         priceStats.max_price = res.statistics.max_price
         priceStats.min_price = res.statistics.min_price
+      } else if (res.avg_price !== undefined) {
+        priceStats.avg_price = res.avg_price
+        priceStats.max_price = res.max_price
+        priceStats.min_price = res.min_price
       }
-      updateMapChart()
     }
+    // 无论数据是否为空都更新图表
+    updateMapChart()
   } catch (error) {
     console.error('加载热力图失败:', error)
   }
 }
 
 const loadRegionComparison = async () => {
-  if (!comparisonProductId.value) return
+  // 直接使用热力图选中的产品ID，保持同步
+  const productId = selectedProductId.value
+  if (!productId) {
+    console.warn('没有可用的产品ID进行地区对比')
+    regionComparisonData.value = []
+    updateRegionChart()
+    return
+  }
   try {
     const res = await getRegionComparison({
-      product_id: comparisonProductId.value
+      product_id: productId
     })
-    if (res && res.data) {
+    console.log('地区对比API响应:', res)
+    // 处理响应数据
+    if (res && Array.isArray(res)) {
+      regionComparisonData.value = res
+    } else if (res && res.data) {
       regionComparisonData.value = res.data
-      updateRegionChart()
+    } else if (res && typeof res === 'object') {
+      // 取第一个数组值
+      const arrKey = Object.keys(res).find(k => Array.isArray(res[k]))
+      if (arrKey) {
+        regionComparisonData.value = res[arrKey]
+      }
+    } else {
+      regionComparisonData.value = []
     }
+    // 无论数据是否为空都更新图表
+    updateRegionChart()
   } catch (error) {
     console.error('加载地区对比失败:', error)
   }
@@ -467,12 +554,22 @@ const loadPricePrediction = async () => {
       product_id: selectedProductId.value,
       days: predictionDays.value
     })
-    if (res && res.success) {
-      predictionData.value = {
-        historical: res.historical,
-        prediction: res.prediction
+    if (res) {
+      if (res.success) {
+        predictionData.value = {
+          historical: res.historical,
+          prediction: res.prediction
+        }
+        updatePredictionChart()
+      } else {
+        console.warn('价格预测提示:', res.error)
+        // 清空预测数据并显示提示
+        predictionData.value = {
+          historical: { dates: [], prices: [] },
+          prediction: { dates: [], prices: [] }
+        }
+        updatePredictionChart()
       }
-      updatePredictionChart()
     }
   } catch (error) {
     console.error('加载预测数据失败:', error)
@@ -482,6 +579,7 @@ const loadPricePrediction = async () => {
 const onProductChange = () => {
   loadPriceTrend()
   loadProvinceHeatmap()
+  loadRegionComparison()
   loadPricePrediction()
 }
 
@@ -499,32 +597,40 @@ const handleResize = () => {
 onMounted(async () => {
   loading.value = true
   try {
-    await loadProducts()
-    await loadDashboardSummary()
-    await loadPriceTrend()
-    await loadProvinceHeatmap()
-    await loadRegionComparison()
-    await loadPricePrediction()
+    // 1. 先加载产品列表（必须优先）
+    const hasProducts = await loadProducts()
 
-    // 初始化图表
+    // 2. 如果有产品，加载其他数据（忽略错误继续）
+    if (hasProducts && selectedProductId.value) {
+      try {
+        await loadDashboardSummary()
+      } catch (e) { console.warn('摘要加载失败:', e) }
+      try {
+        await loadPriceTrend()
+      } catch (e) { console.warn('价格走势加载失败:', e) }
+      try {
+        await loadProvinceHeatmap()
+      } catch (e) { console.warn('热力图加载失败:', e) }
+      try {
+        await loadRegionComparison()
+      } catch (e) { console.warn('地区对比加载失败:', e) }
+      try {
+        await loadPricePrediction()
+      } catch (e) { console.warn('预测加载失败:', e) }
+    }
+  } catch (error) {
+    console.error('初始化失败:', error)
+  } finally {
+    // 3. 数据加载完成后，初始化所有图表（延迟确保 DOM 就绪）
+    loading.value = false
+    await nextTick()
     setTimeout(() => {
       initMapChart()
       initLineChart()
       initRegionChart()
       initPredictionChart()
-
-      // 设置默认对比产品
-      if (products.value.length > 0) {
-        comparisonProductId.value = products.value[0].id
-        loadRegionComparison()
-      }
+      window.addEventListener('resize', handleResize)
     }, 100)
-
-    window.addEventListener('resize', handleResize)
-  } catch (error) {
-    console.error('初始化失败:', error)
-  } finally {
-    loading.value = false
   }
 })
 
@@ -613,6 +719,14 @@ onUnmounted(() => {
 .header-actions {
   display: flex;
   align-items: center;
+}
+
+.product-label {
+  font-size: 12px;
+  color: #909399;
+  background: #f5f7fa;
+  padding: 4px 10px;
+  border-radius: 4px;
 }
 
 .card-body {

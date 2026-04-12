@@ -218,14 +218,18 @@ const handleLogin = async () => {
     if (valid) {
       loginLoading.value = true
       try {
-        await userStore.login(loginForm)
+        const res = await userStore.login(loginForm)
+        // 确保获取最新的用户信息
+        if (!userStore.userInfo) {
+          await userStore.fetchUserInfo()
+        }
         ElMessage.success('登录成功')
         
         const redirect = router.currentRoute.value.query.redirect
         if (redirect) {
           router.push(redirect)
         } else {
-          router.push(getDashboardByRole(userStore.userRole))
+          router.push('/dashboard/home')
         }
       } catch (error) {
         console.error('登录失败:', error)
@@ -244,9 +248,13 @@ const handleRegister = async () => {
       registerLoading.value = true
       try {
         await userStore.register(registerForm)
+        // 确保获取最新的用户信息
+        if (!userStore.userInfo) {
+          await userStore.fetchUserInfo()
+        }
         ElMessage.success('注册成功')
         
-        router.push(getDashboardByRole(userStore.userRole))
+        router.push('/dashboard/home')
       } catch (error) {
         console.error('注册失败:', error)
       } finally {

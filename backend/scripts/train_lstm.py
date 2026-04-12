@@ -87,11 +87,14 @@ def load_data(days=365):
     try:
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
-        df = pd.read_sql(
-            "SELECT date, avg_price FROM cleaned_price_data "
-            "WHERE date>=%s AND date<=%s AND is_outlier=0 ORDER BY date ASC",
-            conn, params=(start_date, end_date)
-        )
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT date, avg_price FROM cleaned_price_data "
+                "WHERE date>=%s AND date<=%s AND is_outlier=0 ORDER BY date ASC",
+                (start_date, end_date)
+            )
+            rows = cursor.fetchall()
+        df = pd.DataFrame(rows, columns=['date', 'avg_price'])
     finally:
         conn.close()
     # 按日期聚合（多市场取均值）
@@ -397,7 +400,10 @@ proc = subprocess.Popen(
 stdout, _ = proc.communicate()
 out = stdout.decode('utf-8', errors='replace')
 for line in out.split('\n'):
-    print(line)
+    try:
+        print(line)
+    except UnicodeEncodeError:
+        print(line.encode('gbk', errors='replace').decode('gbk', errors='replace'))
 
 # 清理临时文件
 try:
@@ -406,5 +412,8 @@ except:
     pass
 
 print("=" * 60)
-print("退出码:", proc.returncode)
+try:
+    print("退出码:", proc.returncode)
+except UnicodeEncodeError:
+    print("退出码:", proc.returncode)
 print("=" * 60)

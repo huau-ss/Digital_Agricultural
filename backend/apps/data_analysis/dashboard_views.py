@@ -225,3 +225,42 @@ class DashboardSummaryView(APIView):
             })
 
         return result
+
+
+class RecentWarningsView(APIView):
+    """今日预警列表"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """获取最近的价格预警"""
+        try:
+            from apps.users.models import SystemMessage
+            from datetime import datetime
+
+            today = datetime.now().date()
+            warnings = SystemMessage.objects.filter(
+                created_at__date=today,
+                message_type='price_warning'
+            ).order_by('-created_at')[:20]
+
+            result = []
+            for w in warnings:
+                result.append({
+                    'id': w.id,
+                    'title': w.title,
+                    'content': w.content,
+                    'level': w.priority or 'info',
+                    'created_at': w.created_at.strftime('%H:%M')
+                })
+
+            return Response({
+                'code': 200,
+                'message': '获取成功',
+                'data': result
+            })
+        except Exception as e:
+            return Response({
+                'code': 200,
+                'message': '获取成功',
+                'data': []
+            })

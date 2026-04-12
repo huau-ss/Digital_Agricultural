@@ -20,11 +20,7 @@
           <span>个人中心</span>
         </el-menu-item>
 
-        <el-menu-item index="/dashboard/crops" v-if="userRole === 'farmer'">
-          <span>作物管理</span>
-        </el-menu-item>
-
-        <el-menu-item index="/dashboard/orders" v-if="userRole === 'buyer'">
+        <el-menu-item index="/dashboard/orders" v-if="userRole === 'buyer' || userRole === 'farmer'">
           <span>订单管理</span>
         </el-menu-item>
 
