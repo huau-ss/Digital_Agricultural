@@ -17,6 +17,7 @@ class CustomUser(AbstractUser):
         default='farmer',
         verbose_name='用户角色'
     )
+    is_approved = models.BooleanField(default=False, verbose_name='是否审核通过')
     phone = models.CharField(max_length=20, blank=True, verbose_name='手机号')
     address = models.CharField(max_length=255, blank=True, verbose_name='地址')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
@@ -78,6 +79,33 @@ class SystemMessage(models.Model):
         null=True,
         blank=True,
         verbose_name='价格变动百分比'
+    )
+    # 价格预警详细信息
+    current_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='当前价格'
+    )
+    predicted_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='预测价格'
+    )
+    change_direction = models.CharField(
+        max_length=10,
+        choices=[('上涨', '上涨'), ('下跌', '下跌')],
+        null=True,
+        blank=True,
+        verbose_name='价格变化方向'
+    )
+    change_days = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name='预计天数'
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     read_at = models.DateTimeField(null=True, blank=True, verbose_name='阅读时间')

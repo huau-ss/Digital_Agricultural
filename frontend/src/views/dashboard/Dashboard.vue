@@ -231,17 +231,6 @@
             </el-button>
 
             <el-button
-              type="info"
-              size="large"
-              class="quick-btn"
-              @click="$router.push('/dashboard/crops')"
-            >
-              <el-icon class="btn-icon"><Management /></el-icon>
-              <span class="btn-text">作物管理</span>
-              <span class="btn-desc">管理我的种植数据</span>
-            </el-button>
-
-            <el-button
               type="danger"
               size="large"
               class="quick-btn"
@@ -256,18 +245,6 @@
       </el-col>
     </el-row>
 
-    <!-- 每日一句 -->
-    <div class="daily-tip" :class="{ 'fade-in': mounted }">
-      <el-card shadow="hover">
-        <div class="tip-content">
-          <el-icon class="tip-icon"><MagicStick /></el-icon>
-          <div class="tip-text">
-            <span class="tip-label">今日建议</span>
-            <span class="tip-message">{{ dailyTip }}</span>
-          </div>
-        </div>
-      </el-card>
-    </div>
   </div>
 </template>
 
@@ -277,7 +254,7 @@ import { useRouter } from 'vue-router'
 import {
   DataAnalysis, Goods, Bell, Shop, User, TrendCharts, Warning,
   CircleCheckFilled, Connection, ArrowRight, Location, Grid,
-  Money, DataBoard, Sell, Management, UserFilled, DataLine, MagicStick
+  Money, DataBoard, Sell, UserFilled, DataLine
 } from '@element-plus/icons-vue'
 import { getDashboardSummary } from '@/api/dashboard'
 import { useUserStore } from '@/stores/user'
@@ -324,21 +301,6 @@ const greeting = computed(() => {
 // 用户信息
 const userInfo = computed(() => userStore.userInfo)
 
-// 每日建议
-const dailyTips = [
-  '根据今日市场行情，建议关注大蒜、生姜等调味品的价格波动',
-  '近期天气预报显示部分地区将有降雨，建议农户做好排水防涝措施',
-  'LSTM 模型预测部分蔬菜价格将上涨，建议农户适当延迟销售',
-  '市场数据显示猪肉价格趋于稳定，养殖户可合理安排出栏时间',
-  '建议采购商关注苹果、梨等水果的批发价格，当前处于低位区间',
-  '春季是病虫害高发期，请注意加强农作物病虫害防治工作',
-  '根据历史数据分析，当前是种植叶菜类蔬菜的好时机'
-]
-
-const dailyTip = computed(() => {
-  const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000)
-  return dailyTips[dayOfYear % dailyTips.length]
-})
 
 // 获取排名样式
 const getRankClass = (index) => {
@@ -808,41 +770,6 @@ onUnmounted(() => {
 .btn-desc {
   font-size: 12px;
   opacity: 0.8;
-}
-
-/* 每日建议 */
-.daily-tip {
-  margin-top: 20px;
-}
-
-.tip-content {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 8px 0;
-}
-
-.tip-icon {
-  font-size: 24px;
-  color: #e6a23c;
-  flex-shrink: 0;
-}
-
-.tip-text {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.tip-label {
-  font-size: 12px;
-  color: #909399;
-}
-
-.tip-message {
-  font-size: 14px;
-  color: #303133;
-  line-height: 1.5;
 }
 
 /* 动画 */

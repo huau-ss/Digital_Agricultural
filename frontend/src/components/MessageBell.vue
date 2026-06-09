@@ -85,7 +85,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Bell } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getMessages, getUnreadCount, markMessageRead, markAllMessagesRead } from '@/api/message'
@@ -194,8 +194,6 @@ onMounted(() => {
   }, 30000)
 })
 
-// 组件卸载时清除定时器
-import { onUnmounted } from 'vue'
 onUnmounted(() => {
   if (refreshInterval) {
     clearInterval(refreshInterval)

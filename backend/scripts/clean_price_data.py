@@ -23,6 +23,13 @@ django.setup()
 
 from apps.data_collection.models import AgriculturalProduct, PriceHistory, CleanedPriceData
 
+# 导入市场省份映射
+try:
+    from apps.data_collection.market_province_map import get_province_from_market
+except ImportError:
+    def get_province_from_market(market_name):
+        return ''
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -35,12 +42,12 @@ class PriceDataCleaner:
 
     def __init__(self):
         self.stats = {
-            'total_processed': 0,
-            'duplicates_removed': 0,
-            'outliers_marked': 0,
-            'cleaned_inserted': 0,
-            'cleaned_updated': 0,
-            'errors': 0
+            'total_processed': 0,             # 处理总数
+            'duplicates_removed': 0,          # 删除重复记录数
+            'outliers_marked': 0,             # 标记异常值数
+            'cleaned_inserted': 0,             # 新增清洗数据数
+            'cleaned_updated': 0,             # 更新清洗数据数
+            'errors': 0                        # 错误数
         }
 
     def load_data(self, days_back: int = None, product_id: int = None) -> pd.DataFrame:
@@ -55,7 +62,7 @@ class PriceDataCleaner:
             queryset = queryset.filter(date__gte=start_date)
 
         data = list(queryset.values(
-            'id', 'product_id', 'product__name', 'market_name',
+            'id', 'product_id', 'product__name', 'market_name', 'province',
             'date', 'avg_price', 'max_price', 'min_price', 'volume', 'source'
         ))
 
@@ -74,6 +81,7 @@ class PriceDataCleaner:
 
         removed = 0
         for dup in duplicates:
+            # 获取 product + market + date 完全相同的重复记录
             records = (
                 PriceHistory.objects
                 .filter(
@@ -83,7 +91,7 @@ class PriceDataCleaner:
                 )
                 .order_by('created_at')
             )
-
+            # 删除除第一条外的所有重复记录
             for record in list(records)[1:]:
                 record.delete()
                 removed += 1
@@ -100,22 +108,27 @@ class PriceDataCleaner:
         df_result['is_outlier_zscore'] = False
 
         for (product_id, market_name), group in df_result.groupby(['product_id', 'market_name']):
+            # 如果记录数小于4，则不进行异常值检测
             if len(group) < 4:
-                continue
+                continue           
 
+            # 计算平均值和标准差
             prices = pd.to_numeric(group['avg_price'], errors='coerce')
-            mean = prices.mean()
-            std = prices.std()
+            mean = prices.mean()       # 平均值
+            std = prices.std()         # 标准差
 
+            # 如果标准差为0，则不进行异常值检测
             if pd.isna(std) or std == 0:
                 continue
 
+            # 计算 Z 分数
             z_scores = np.abs((prices - mean) / std)
             mask = z_scores > threshold
 
+            # 如果 Z 分数大于阈值，则标记为异常值
             if mask.any():
-                df_result.loc[mask.values, 'is_outlier_zscore'] = True
-                self.stats['outliers_marked'] += mask.sum()
+                df_result.loc[mask.values, 'is_outlier_zscore'] = True  # 标记为异常值，更新 DataFrame
+                self.stats['outliers_marked'] += mask.sum()               # 统计异常数量      
 
         return df_result
 
@@ -125,7 +138,8 @@ class PriceDataCleaner:
         """
         df_result = df.copy()
         df_result['is_outlier_iqr'] = False
-
+        
+        # 遍历每个 product + market 组合
         for (product_id, market_name), group in df_result.groupby(['product_id', 'market_name']):
             if len(group) < 4:
                 continue
@@ -135,18 +149,18 @@ class PriceDataCleaner:
             if len(prices) < 4:
                 continue
 
-            Q1 = prices.quantile(0.25)
-            Q3 = prices.quantile(0.75)
-            IQR = Q3 - Q1
+            Q1 = prices.quantile(0.25)       # 第一四分位数
+            Q3 = prices.quantile(0.75)       # 第三四分位数
+            IQR = Q3 - Q1                     # 四分位距
 
-            lower_bound = Q1 - 1.5 * IQR
-            upper_bound = Q3 + 1.5 * IQR
+            lower_bound = Q1 - 1.5 * IQR     # 下界
+            upper_bound = Q3 + 1.5 * IQR     # 上界
 
-            mask = (prices < lower_bound) | (prices > upper_bound)
+            mask = (prices < lower_bound) | (prices > upper_bound)  # 标记为异常值
 
             if mask.any():
-                outlier_indices = prices[mask].index
-                df_result.loc[outlier_indices, 'is_outlier_iqr'] = True
+                outlier_indices = prices[mask].index  # 获取异常值索引
+                df_result.loc[outlier_indices, 'is_outlier_iqr'] = True  # 标记为异常值，更新 DataFrame
                 self.stats['outliers_marked'] += mask.sum()
 
         return df_result
@@ -166,6 +180,40 @@ class PriceDataCleaner:
 
         return df_result
 
+    def fill_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        对检测出的异常值位置进行缺失值填充（线性插值）。
+        线性插值原理：在两个已知点之间用直线估算中间值。
+        例如 Day1=5元，Day3=9元，Day2 缺失 → 插值得到 Day2=7元。
+        """
+        df_result = df.copy()
+        filled_count = 0
+
+        for (product_id, market_name), group in df_result.groupby(['product_id', 'market_name']):
+            if len(group) < 2:
+                continue
+
+            group = group.sort_values('date').copy()
+            outlier_mask = group['is_outlier'] == True
+
+            if not outlier_mask.any():
+                continue
+
+            prices = group['avg_price'].copy()
+            # 线性插值：自动跳过非空值，仅对空值（包括异常值）进行插值
+            filled_series = prices.interpolate(method='linear')
+            # 对于首尾无法插值的边界值，使用最近非异常值的均值填充
+            if filled_series.isna().any():
+                valid_prices = prices[~outlier_mask]
+                fill_value = valid_prices.mean() if len(valid_prices) > 0 else prices.mean()
+                filled_series = filled_series.fillna(fill_value)
+
+            df_result.loc[group.index, 'avg_price'] = filled_series
+            filled_count += outlier_mask.sum()
+
+        logger.info(f"缺失值填充完成，共填充 {filled_count} 个位置")
+        return df_result
+
     def write_cleaned_data(self, df: pd.DataFrame) -> Dict[str, int]:
         """
         将清洗后的数据写入 cleaned_price_data 表
@@ -174,23 +222,27 @@ class PriceDataCleaner:
         updated = 0
         errors = 0
 
+        # 遍历 DataFrame 中的每一行
         for _, row in df.iterrows():
             try:
-                product_id = row['product_id']
+                product_id = row['product_id']    # 产品ID
                 market_name = row['market_name']
-                date = row['date']
-                avg_price = Decimal(str(row['avg_price']))
-                is_outlier = row.get('is_outlier', False)
+                date = row['date']                 # 日期
+                avg_price = Decimal(str(row['avg_price']))  # 平均价格
+                is_outlier = row.get('is_outlier', False)  # 是否为异常值
 
-                max_price = Decimal(str(row['max_price'])) if pd.notna(row.get('max_price')) else None
-                min_price = Decimal(str(row['min_price'])) if pd.notna(row.get('min_price')) else None
-                volume = int(row['volume']) if pd.notna(row.get('volume')) else None
-                source = row.get('source', '')
+                max_price = Decimal(str(row['max_price'])) if pd.notna(row.get('max_price')) else None  # 最大价格
+                min_price = Decimal(str(row['min_price'])) if pd.notna(row.get('min_price')) else None  # 最小价格
+                volume = int(row['volume']) if pd.notna(row.get('volume')) else None  # 成交量
+                source = row.get('source', '')  # 来源
+
+                # 自动提取省份
+                province = row.get('province', '') or get_province_from_market(market_name)
 
                 outlier_reason = 'IQR异常' if row.get('is_outlier_iqr', False) else (
                     'Z-score异常' if row.get('is_outlier_zscore', False) else '')
 
-                # 查找是否已存在
+                # 查找是否已存在（按 产品+市场+日期 唯一确定）
                 existing = CleanedPriceData.objects.filter(
                     product_id=product_id,
                     market_name=market_name,
@@ -204,6 +256,7 @@ class PriceDataCleaner:
                     existing.min_price = min_price
                     existing.volume = volume
                     existing.source = source
+                    existing.province = province  # 更新省份
                     existing.is_outlier = is_outlier
                     existing.outlier_reason = outlier_reason if is_outlier else ''
                     existing.save()
@@ -213,6 +266,7 @@ class PriceDataCleaner:
                     CleanedPriceData.objects.create(
                         product_id=product_id,
                         market_name=market_name,
+                        province=province,  # 新增省份字段
                         date=date,
                         avg_price=avg_price,
                         max_price=max_price,
@@ -283,6 +337,9 @@ class PriceDataCleaner:
 
         outlier_count = df['is_outlier'].sum()
         logger.info(f"异常值检测完成，共检测到 {outlier_count} 个异常值")
+
+        # 3.5 对异常值位置进行缺失值填充（线性插值）
+        df = self.fill_missing_values(df)
 
         # 4. 写入清洗后的数据
         self.write_cleaned_data(df)

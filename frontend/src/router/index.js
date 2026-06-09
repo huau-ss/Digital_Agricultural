@@ -60,16 +60,16 @@ const routes = [
         meta: { title: '利润模拟' }
       },
       {
+        path: 'price-warning',
+        name: 'PriceWarning',
+        component: () => import('@/views/analysis/PriceWarning.vue'),
+        meta: { title: '价格预警' }
+      },
+      {
         path: 'trade-hall',
         name: 'TradeHall',
         component: () => import('@/views/trade/TradeHall.vue'),
         meta: { title: '供需大厅' }
-      },
-      {
-        path: 'crops',
-        name: 'Crops',
-        component: () => import('@/views/dashboard/role/FarmerDashboard.vue'),
-        meta: { title: '作物管理', roles: ['farmer'] }
       },
       {
         path: 'orders',
@@ -121,8 +121,11 @@ router.beforeEach(async (to, from, next) => {
   
   if (targetRoles && userStore.isLoggedIn) {
     if (!targetRoles.includes(userStore.userRole)) {
-      const dashboardPath = `/dashboard/${userStore.userRole}`
-      next(dashboardPath)
+      if (userStore.userRole) {
+        next(`/dashboard/${userStore.userRole}`)
+      } else {
+        next('/dashboard/home')
+      }
       return
     }
   }

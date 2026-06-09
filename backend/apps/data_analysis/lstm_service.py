@@ -8,9 +8,8 @@ import sys
 import django
 
 # Django 环境配置（必须在 import django 之前设置）
-# lstm_service.py 在 backend/apps/data_analysis/ 下
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# BASE_DIR = 'Digital Agriculture'，settings.py 在 backend/configs/ 下
+
 SETTINGS_DIR = os.path.join(BASE_DIR, 'backend', 'configs')
 if SETTINGS_DIR not in sys.path:
     sys.path.insert(0, SETTINGS_DIR)
@@ -68,8 +67,10 @@ class LSTMPredictor:
     NUM_LAYERS = 2
     DROPOUT = 0.2
 
-    def __init__(self, product_id=None):
+    def __init__(self, product_id=None, market_name=None):
+        # 初始化参数
         self.product_id = product_id
+        self.market_name = market_name  # 地区/市场名称
         self.model = None
         self.scaler = None
         self.device = torch.device('cpu')
@@ -123,8 +124,8 @@ class LSTMPredictor:
             output_size=1,
             dropout=self.DROPOUT
         ).to(self.device)
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
-        self.model.eval()
+        self.model.load_state_dict(torch.load(model_path, map_location=self.device))    # 加载模型参数
+        self.model.eval()    # 设置为评估模式
 
         # 加载归一化器
         if os.path.exists(scaler_path):
@@ -136,10 +137,10 @@ class LSTMPredictor:
 
     def predict_future(self, historical_prices, future_days=7):
         """预测未来价格（自回归预测）"""
-        if len(historical_prices) < 5:
+        if len(historical_prices) < 7:
             raise ValueError(f"历史数据不足，需要至少 5 天数据，当前只有 {len(historical_prices)} 天")
 
-        loaded = self.load_model_and_scaler()
+        loaded = self.load_model_and_scaler()    # 加载模型和归一化器
         if not loaded[0]:
             raise FileNotFoundError("未找到预训练模型，请先运行训练脚本！")
 
@@ -161,6 +162,7 @@ class LSTMPredictor:
         dates = []
         is_prediction = []
 
+        #添加历史日期
         for i in range(len(historical_prices)):
             d = last_date - timedelta(days=len(historical_prices) - 1 - i)
             dates.append(d.isoformat())
@@ -170,28 +172,28 @@ class LSTMPredictor:
         current_seq = scaled_history[-self.SEQ_LENGTH:].reshape(1, -1, 1)
         current_seq = torch.FloatTensor(current_seq).to(self.device)
 
+        # 自回归预测未来价格
         predictions = []
         for _ in range(future_days):
-            with torch.no_grad():
-                pred = self.model(current_seq)
-                pred_value = pred.cpu().numpy()[0, 0]
-                predictions.append(pred_value)
+            with torch.no_grad():    # 不计算梯度       
+                pred = self.model(current_seq)    # 预测
+                pred_value = pred.cpu().numpy()[0, 0]    # 预测值
+                predictions.append(pred_value)    # 添加到预测列表
 
-                current_seq = current_seq.cpu().numpy()
-                current_seq = np.roll(current_seq, -1, axis=1)
-                current_seq[0, -1, 0] = pred_value
-                current_seq = torch.FloatTensor(current_seq).to(self.device)
-
-        predictions = np.array(predictions).reshape(-1, 1)
-        predictions_original = self.scaler.inverse_transform(predictions).flatten()
+                current_seq = current_seq.cpu().numpy()    # 更新当前序列
+                current_seq = np.roll(current_seq, -1, axis=1)    # 左移一位
+                current_seq[0, -1, 0] = pred_value    # 最后一位填入预测值
+                current_seq = torch.FloatTensor(current_seq).to(self.device)    # 更新当前序列
+        #反归一化
+        predictions = np.array(predictions).reshape(-1, 1)    
+        predictions_original = self.scaler.inverse_transform(predictions).flatten()    
 
         # 添加约束：预测值不应偏离历史数据太远
-        history_mean = np.mean(historical_prices)
+        history_mean = np.mean(historical_prices)    # 历史均值
         history_std = np.std(historical_prices) if np.std(historical_prices) > 0 else 0.5
-
+        # 限制预测值在历史均值 ± 2 倍标准差范围内（更严格的约束）
         constrained_predictions = []
         for p in predictions_original:
-            # 限制预测值在历史均值 ± 2 倍标准差范围内（更严格的约束）
             lower = history_mean - 2 * history_std
             upper = history_mean + 2 * history_std
             if lower < 0:
@@ -199,15 +201,16 @@ class LSTMPredictor:
             constrained_p = max(lower, min(upper, p))
             constrained_predictions.append(constrained_p)
 
-        predictions_original = [round(float(p), 2) for p in constrained_predictions]
-
+        #四舍五入
+        predictions_original = [round(float(p), 2) for p in constrained_predictions]    
+        #添加预测日期
         for i in range(future_days):
             future_date = last_date + timedelta(days=i + 1)
             dates.append(future_date.isoformat())
-            is_prediction.append(True)
+            is_prediction.append(True)    # 添加预测标志
 
-        all_prices = list(historical_prices) + predictions_original
-        return dates, all_prices, is_prediction
+        all_prices = list(historical_prices) + predictions_original    # 添加预测价格
+        return dates, all_prices, is_prediction    # 返回日期、价格和预测标志
 
     def predict_single_step(self, recent_prices):
         """单步预测：基于最近数据预测下一天价格"""
@@ -229,18 +232,35 @@ class LSTMPredictor:
         return round(float(pred_value), 2)
 
 
-def get_product_price_history(product_id, days=60):
-    """获取产品的历史价格数据"""
+def get_product_price_history(product_id, days=60, market_name=None, province=None):
+    """获取产品的历史价格数据
+
+    Args:
+        product_id: 产品ID
+        days: 获取天数，默认60天
+        market_name: 市场名称（可选），与 province 二选一
+        province: 省份名称（可选），会匹配该省份下所有市场的平均价格
+    """
     from apps.data_collection.models import CleanedPriceData
 
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=days)
 
-    price_data = CleanedPriceData.objects.filter(
-        product_id=product_id,
-        date__gte=start_date,
-        date__lte=end_date
-    ).values('date', 'avg_price').order_by('date')
+    filters = {
+        'product_id': product_id,
+        'date__gte': start_date,
+        'date__lte': end_date,
+        'is_outlier': False  # 只查询清洗后的正常数据
+    }
+
+    # 优先使用省份，如果指定了省份则忽略 market_name
+    if province:
+        filters['province'] = province
+    elif market_name:
+        filters['market_name'] = market_name
+
+    price_data = CleanedPriceData.objects.filter(**filters).values('date', 'avg_price').order_by('date')
+
 
     daily_prices = {}
     for item in price_data:
@@ -257,10 +277,77 @@ def get_product_price_history(product_id, days=60):
     return prices
 
 
-def predict_product_price(product_id, future_days=7):
-    """预测产品未来价格的主函数"""
-    # 尝试获取最多60天历史数据
-    historical_prices = get_product_price_history(product_id, days=60)
+def get_available_markets(product_id):
+    """获取指定产品可用的地区/市场列表"""
+    from apps.data_collection.models import CleanedPriceData
+    from datetime import datetime, timedelta
+
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=90)
+
+    markets = CleanedPriceData.objects.filter(
+        product_id=product_id,
+        date__gte=start_date,
+        date__lte=end_date
+    ).values_list('market_name', flat=True).distinct().order_by('market_name')
+
+    return list(markets)
+
+
+def get_available_provinces(product_id):
+    """获取指定产品可用的省份列表"""
+    from apps.data_collection.models import CleanedPriceData
+    from datetime import datetime, timedelta
+
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=90)
+
+    provinces = CleanedPriceData.objects.filter(
+        product_id=product_id,
+        date__gte=start_date,
+        date__lte=end_date
+    ).exclude(province='').values_list('province', flat=True).distinct().order_by('province')
+
+    return list(provinces)
+
+
+def get_prediction_metrics(product_id, seq_length):
+    """从 model_registry.pkl 读取该产品的真实评估指标"""
+    registry_path = os.path.join(MODEL_DIR, 'model_registry.pkl')
+    if not os.path.exists(registry_path):
+        return {'seq_length': seq_length, 'model_version': 'unknown', 'updated_at': None}
+
+    try:
+        registry = joblib.load(registry_path)
+        key = str(product_id) if str(product_id) in registry else product_id
+        if key in registry:
+            r = registry[key]
+            return {
+                'seq_length': seq_length,
+                'model_version': 'v1.0',
+                'updated_at': datetime.now().isoformat(),
+                'rmse': round(r.get('rmse', 0), 4),
+                'mae': round(r.get('mae', 0), 4),
+                'r2': round(r.get('r2', 0), 4),
+                'mape': round(r.get('mape', 0), 2),
+                'data_points': r.get('data_points', 0),
+            }
+        return {'seq_length': seq_length, 'model_version': 'unknown', 'updated_at': None}
+    except Exception:
+        return {'seq_length': seq_length, 'model_version': 'unknown', 'updated_at': None}
+
+
+def predict_product_price(product_id, future_days=7, market_name=None, province=None):
+    """预测产品未来价格的主函数
+
+    Args:
+        product_id: 产品ID
+        future_days: 预测天数，默认7天
+        market_name: 市场名称（可选），与 province 二选一，province 优先
+        province: 省份名称（可选），会使用该省份下所有市场的平均价格
+    """
+    # 尝试获取最多90天历史数据（90天覆盖更完整的数据周期）
+    historical_prices = get_product_price_history(product_id, days=90, market_name=market_name, province=province)
 
     # 降低最低要求，从12天改为7天（SEQ_LENGTH=7）
     min_required = 10  # 至少需要10天数据才能预测
@@ -270,22 +357,29 @@ def predict_product_price(product_id, future_days=7):
             'success': False,
             'error': f'历史数据不足，需要至少 {min_required} 天，当前只有 {len(historical_prices)} 天',
             'product_id': product_id,
+            'market_name': market_name,
+            'province': province,
             'historical': {'dates': [], 'prices': []},
             'prediction': {'dates': [], 'prices': []}
         }
 
     try:
-        predictor = LSTMPredictor(product_id)
+        #创建预测器并预测
+        predictor = LSTMPredictor(product_id, market_name=province or market_name)
         dates, prices, is_prediction = predictor.predict_future(historical_prices, future_days)
 
+        #分离历史日期和预测日期
         historical_dates = [d for d, p, is_p in zip(dates, prices, is_prediction) if not is_p]
         historical_prices_list = [round(p, 2) for p, is_p in zip(prices, is_prediction) if not is_p]
         future_dates = [d for d, p, is_p in zip(dates, prices, is_prediction) if is_p]
         future_prices = [round(p, 2) for p, is_p in zip(prices, is_prediction) if is_p]
 
+        #返回结果
         return {
             'success': True,
             'product_id': product_id,
+            'province': province,
+            'market_name': province or (market_name or '全国平均'),
             'historical': {
                 'dates': historical_dates,
                 'prices': historical_prices_list
@@ -294,11 +388,7 @@ def predict_product_price(product_id, future_days=7):
                 'dates': future_dates,
                 'prices': future_prices
             },
-            'metrics': {
-                'seq_length': LSTMPredictor.SEQ_LENGTH,
-                'model_version': 'v1.0',
-                'updated_at': datetime.now().isoformat()
-            }
+            'metrics': get_prediction_metrics(product_id, LSTMPredictor.SEQ_LENGTH),
         }
 
     except FileNotFoundError as e:
@@ -306,6 +396,8 @@ def predict_product_price(product_id, future_days=7):
             'success': False,
             'error': '模型文件不存在，请先训练模型',
             'product_id': product_id,
+            'province': province,
+            'market_name': province or market_name,
             'historical': {'dates': [], 'prices': []},
             'prediction': {'dates': [], 'prices': []}
         }
@@ -314,6 +406,8 @@ def predict_product_price(product_id, future_days=7):
             'success': False,
             'error': str(e),
             'product_id': product_id,
+            'province': province,
+            'market_name': province or market_name,
             'historical': {'dates': [], 'prices': []},
             'prediction': {'dates': [], 'prices': []}
         }

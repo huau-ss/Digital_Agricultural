@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>数字农业平台 - 性能测试报告</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: white; margin-bottom: 30px; text-align: center; text-shadow: 2px 2px 4px rgba(0,0,0,0.2); }
+        .subtitle { color: rgba(255,255,255,0.9); text-align: center; margin-bottom: 30px; font-size: 1.1em; }
+        .summary { background: white; border-radius: 16px; padding: 30px; margin-bottom: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+        .summary h2 { color: #333; margin-bottom: 20px; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .metric { text-align: center; padding: 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; }
+        .metric-value { font-size: 2.5em; font-weight: bold; }
+        .metric-label { font-size: 0.95em; opacity: 0.9; margin-top: 8px; }
+        .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 30px; margin-bottom: 30px; }
+        .chart-card { background: white; border-radius: 16px; padding: 25px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
+        .chart-card h3 { color: #333; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 3px solid; border-image: linear-gradient(135deg, #667eea, #764ba2) 1; }
+        .data-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; }
+        .data-table th, .data-table td { padding: 12px 8px; text-align: center; border: 1px solid #e0e0e0; }
+        .data-table th { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600; }
+        .data-table tr:nth-child(even) { background: #f8f9fa; }
+        .data-table tr:hover { background: #e8f0fe; }
+        .success { color: #34a853; font-weight: bold; }
+        .warning { color: #fbbc04; font-weight: bold; }
+        .error { color: #ea4335; font-weight: bold; }
+        .highlight { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .footer { text-align: center; margin-top: 30px; color: rgba(255,255,255,0.8); font-size: 0.9em; }
+        .footer a { color: white; }
+        @media (max-width: 768px) { .chart-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>数字农业平台 - 性能测试报告</h1>
+        <p class="subtitle">测试时间: 2026-05-17 10:21:51</p>
+
+        <div class="summary">
+            <h2>测试摘要</h2>
+            <div class="summary-grid">
+                <div class="metric">
+                    <div class="metric-value">5</div>
+                    <div class="metric-label">测试场景数</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">10,837</div>
+                    <div class="metric-label">总请求数</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">48.2%</div>
+                    <div class="metric-label">平均成功率</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">187</div>
+                    <div class="metric-label">峰值RPS</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-grid">
+            <div class="chart-card">
+                <h3>并发数 vs 吞吐量 (RPS)</h3>
+                <canvas id="rpsChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>并发数 vs 响应时间 (ms)</h3>
+                <canvas id="responseChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>并发数 vs 错误率 (%)</h3>
+                <canvas id="errorChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>成功率分布</h3>
+                <canvas id="successChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <h3>详细测试数据</h3>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>并发数</th>
+                        <th>总请求</th>
+                        <th>成功率</th>
+                        <th>RPS</th>
+                        <th>峰值RPS</th>
+                        <th>平均(ms)</th>
+                        <th>P50(ms)</th>
+                        <th>P90(ms)</th>
+                        <th>P95(ms)</th>
+                        <th>P99(ms)</th>
+                        <th>最大(ms)</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr>
+                        <td class="highlight">10</td>
+                        <td>229</td>
+                        <td class="success">100.0%</td>
+                        <td>7.4</td>
+                        <td>10</td>
+                        <td>1330</td>
+                        <td>1317</td>
+                        <td>1458</td>
+                        <td>1512</td>
+                        <td>1594</td>
+                        <td>1618</td>
+                    </tr>
+
+                    <tr>
+                        <td class="highlight">50</td>
+                        <td>401</td>
+                        <td class="error">79.6%</td>
+                        <td>11.6</td>
+                        <td>20</td>
+                        <td>4049</td>
+                        <td>4176</td>
+                        <td>5617</td>
+                        <td>5926</td>
+                        <td>6337</td>
+                        <td>6595</td>
+                    </tr>
+
+                    <tr>
+                        <td class="highlight">100</td>
+                        <td>1,071</td>
+                        <td class="error">33.6%</td>
+                        <td>26.8</td>
+                        <td>46</td>
+                        <td>2993</td>
+                        <td>2056</td>
+                        <td>5447</td>
+                        <td>5912</td>
+                        <td>6292</td>
+                        <td>6778</td>
+                    </tr>
+
+                    <tr>
+                        <td class="highlight">200</td>
+                        <td>2,436</td>
+                        <td class="error">18.2%</td>
+                        <td>49.4</td>
+                        <td>94</td>
+                        <td>2601</td>
+                        <td>2055</td>
+                        <td>4994</td>
+                        <td>5676</td>
+                        <td>6455</td>
+                        <td>7003</td>
+                    </tr>
+
+                    <tr>
+                        <td class="highlight">500</td>
+                        <td>6,700</td>
+                        <td class="error">9.7%</td>
+                        <td>91.0</td>
+                        <td>187</td>
+                        <td>2342</td>
+                        <td>2055</td>
+                        <td>2167</td>
+                        <td>4982</td>
+                        <td>6225</td>
+                        <td>7142</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="footer">
+            <p>报告生成时间: 2026-05-17 10:21:51</p>
+            <p>测试工具: Python LoadTester | 被测系统: 数字农业平台登录接口</p>
+        </div>
+    </div>
+
+    <script>
+        const results = [{"total_requests": 229, "success_count": 229, "error_count": 0, "success_rate": 100.0, "error_rate": 0.0, "rps": 7.444441165068963, "max_rps": 10, "avg_rps": 7.633333333333334, "avg_response_time": 1330.3842794759826, "min_response_time": 1045, "max_response_time": 1618, "p50": 1317.0, "p90": 1457.6, "p95": 1512.2, "p99": 1594.32, "total_time": 30.761207580566406}, {"total_requests": 401, "success_count": 319, "error_count": 82, "success_rate": 79.55112219451371, "error_rate": 20.448877805486283, "rps": 11.606629905992362, "max_rps": 20, "avg_rps": 12.151515151515152, "avg_response_time": 4048.7306733167084, "min_response_time": 2015, "max_response_time": 6595, "p50": 4176.0, "p90": 5617.0, "p95": 5926.0, "p99": 6337.0, "total_time": 34.54921913146973}, {"total_requests": 1071, "success_count": 360, "error_count": 711, "success_rate": 33.61344537815126, "error_rate": 66.38655462184873, "rps": 26.844850595612893, "max_rps": 46, "avg_rps": 28.18421052631579, "avg_response_time": 2993.4444444444443, "min_response_time": 2011, "max_response_time": 6778, "p50": 2056.0, "p90": 5447.0, "p95": 5912.0, "p99": 6292.2, "total_time": 39.89591956138611}, {"total_requests": 2436, "success_count": 443, "error_count": 1993, "success_rate": 18.185550082101805, "error_rate": 81.81444991789819, "rps": 49.435967386419776, "max_rps": 94, "avg_rps": 50.75, "avg_response_time": 2600.6018062397375, "min_response_time": 2009, "max_response_time": 7003, "p50": 2055.0, "p90": 4993.5, "p95": 5675.5, "p99": 6455.100000000001, "total_time": 49.27586388587952}, {"total_requests": 6700, "success_count": 652, "error_count": 6048, "success_rate": 9.731343283582088, "error_rate": 90.26865671641791, "rps": 91.01432933751269, "max_rps": 187, "avg_rps": 93.05555555555556, "avg_response_time": 2342.119253731343, "min_response_time": 2008, "max_response_time": 7142, "p50": 2055.0, "p90": 2167.2000000000007, "p95": 4982.05, "p99": 6225.1600000000035, "total_time": 73.61478185653687}];
+        const threads = [10, 50, 100, 200, 500];
+
+        // 通用图表配置
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { legend: { position: 'top' } }
+        };
+
+        // RPS Chart
+        new Chart(document.getElementById('rpsChart'), {
+            type: 'line',
+            data: {
+                labels: threads.map(t => t + '并发'),
+                datasets: [
+                    {
+                        label: '平均RPS',
+                        data: results.map(r => r.rps),
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    },
+                    {
+                        label: '峰值RPS',
+                        data: results.map(r => r.max_rps),
+                        borderColor: '#34a853',
+                        backgroundColor: 'rgba(52, 168, 83, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                ...chartOptions,
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: 'RPS (请求/秒)' } }
+                }
+            }
+        });
+
+        // Response Time Chart
+        new Chart(document.getElementById('responseChart'), {
+            type: 'line',
+            data: {
+                labels: threads.map(t => t + '并发'),
+                datasets: [
+                    { label: '平均', data: results.map(r => r.avg_response_time), borderColor: '#667eea', tension: 0.4 },
+                    { label: 'P50', data: results.map(r => r.p50), borderColor: '#34a853', tension: 0.4, borderDash: [5, 5] },
+                    { label: 'P90', data: results.map(r => r.p90), borderColor: '#fbbc04', tension: 0.4, borderDash: [5, 5] },
+                    { label: 'P99', data: results.map(r => r.p99), borderColor: '#ea4335', tension: 0.4, borderDash: [5, 5] }
+                ]
+            },
+            options: {
+                ...chartOptions,
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: '响应时间 (ms)' } }
+                }
+            }
+        });
+
+        // Error Rate Chart
+        new Chart(document.getElementById('errorChart'), {
+            type: 'bar',
+            data: {
+                labels: threads.map(t => t + '并发'),
+                datasets: [{
+                    label: '错误率 (%)',
+                    data: results.map(r => r.error_rate),
+                    backgroundColor: results.map(r =>
+                        r.error_rate < 1 ? 'rgba(52, 168, 83, 0.8)' :
+                        r.error_rate < 5 ? 'rgba(251, 188, 4, 0.8)' :
+                        'rgba(234, 67, 53, 0.8)'
+                    ),
+                    borderColor: results.map(r =>
+                        r.error_rate < 1 ? '#34a853' :
+                        r.error_rate < 5 ? '#fbbc04' :
+                        '#ea4335'
+                    ),
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                ...chartOptions,
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: '错误率 (%)' } }
+                }
+            }
+        });
+
+        // Success Rate Chart
+        new Chart(document.getElementById('successChart'), {
+            type: 'doughnut',
+            data: {
+                labels: ['成功', '失败'],
+                datasets: [{
+                    data: [
+                        results.reduce((sum, r) => sum + r.success_count, 0),
+                        results.reduce((sum, r) => sum + r.error_count, 0)
+                    ],
+                    backgroundColor: ['#34a853', '#ea4335'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+    </script>
+</body>
+</html>

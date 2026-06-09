@@ -17,8 +17,8 @@ export function getProduct(id) {
   })
 }
 
-// 获取仪表盘摘要数据
-export function getDashboardSummary() {
+// 获取数据采集模块的仪表盘摘要数据
+export function getCollectionSummary() {
   return request({
     url: '/data-collection/visualization/dashboard_summary/',
     method: 'get'

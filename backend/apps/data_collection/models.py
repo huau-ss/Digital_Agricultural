@@ -45,6 +45,7 @@ class PriceHistory(models.Model):
     )
     date = models.DateField(verbose_name='日期')
     market_name = models.CharField(max_length=200, verbose_name='市场名称')
+    province = models.CharField(max_length=50, verbose_name='省份', blank=True)  # 新增省份字段
     avg_price = models.DecimalField(
         max_digits=10,
         decimal_places=4,
@@ -77,7 +78,9 @@ class PriceHistory(models.Model):
         indexes = [
             models.Index(fields=['date']),
             models.Index(fields=['market_name']),
+            models.Index(fields=['province']),  # 新增省份索引
             models.Index(fields=['product', 'date']),
+            models.Index(fields=['product', 'province', 'date']),  # 新增组合索引
         ]
         unique_together = ['product', 'market_name', 'date']
 
@@ -95,6 +98,7 @@ class CleanedPriceData(models.Model):
     )
     date = models.DateField(verbose_name='日期')
     market_name = models.CharField(max_length=200, verbose_name='市场名称')
+    province = models.CharField(max_length=50, verbose_name='省份', blank=True)  # 新增省份字段
     avg_price = models.DecimalField(
         max_digits=10,
         decimal_places=4,
@@ -128,7 +132,9 @@ class CleanedPriceData(models.Model):
         indexes = [
             models.Index(fields=['date']),
             models.Index(fields=['market_name']),
+            models.Index(fields=['province']),  # 新增省份索引
             models.Index(fields=['product', 'date']),
+            models.Index(fields=['product', 'province', 'date']),  # 新增组合索引
             models.Index(fields=['is_outlier']),
         ]
         unique_together = ['product', 'market_name', 'date']

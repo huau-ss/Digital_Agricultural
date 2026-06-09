@@ -29,27 +29,32 @@ MDIR = r'E:\PyCharm 2025.2.1.1\pythonProjects\Digital Agriculture\backend\models
 os.makedirs(MDIR, exist_ok=True)
 
 # 训练超参数
-SEQ_LENGTH = 7
-HIDDEN_SIZE = 64
-NUM_LAYERS = 2
-DROPOUT = 0.2
-LEARNING_RATE = 0.001
-EPOCHS = 100
-BATCH_SIZE = 16
-MIN_DATA_POINTS = 30  # 最少数据点数
+SEQ_LENGTH = 7          # 序列长度 （每次训练的输入长度）
+HIDDEN_SIZE = 64        # 隐藏层大小（每次训练的隐藏层大小）
+NUM_LAYERS = 2         # 层数（每次训练的层数）
+DROPOUT = 0.2          #  丢弃率（每次训练的丢弃率）
+LEARNING_RATE = 0.001  # 学习率 （每次训练的步长）
+EPOCHS = 100           # 训练轮数（每次训练的完整数据集数）
+BATCH_SIZE = 16        # 批量大小   （每次训练的样本数）
+MIN_DATA_POINTS = 30   # 最少数据点数（至少需要30天数据）
 
 
 # ==================== LSTM 模型 ====================
-class PriceLSTM(nn.Module):
+class PriceLSTM(nn.Module):             # 继承PyTorch的神经网络基类
     def __init__(self, input_size=1, hidden_size=64, num_layers=2, dropout=0.2):
         super().__init__()
-        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
-                           num_layers=num_layers, batch_first=True, dropout=dropout)
-        self.fc = nn.Linear(hidden_size, 1)
+        self.lstm = nn.LSTM(
+            input_size=input_size,   # 输入大小（1个特征）
+            hidden_size=hidden_size, # 64个神经元
+            num_layers=num_layers,  # 层数
+            batch_first=True,      # 是否批量第一
+            dropout=dropout)       # 丢弃率
+        self.fc = nn.Linear(hidden_size, 1)  # 全连接层（把64个神经元压缩成1个输出（预测价格））
 
+    # 前向传播（机器人思考）
     def forward(self, x):
         lstm_out, _ = self.lstm(x)
-        return self.fc(lstm_out[:, -1, :])
+        return self.fc(lstm_out[:, -1, :])  # 取最后一个时间步的输出（预测价格）
 
 
 def load_product_data(product_id, days=120):
@@ -117,46 +122,49 @@ def train_single_product(product_id, product_name):
         print(f'  Skip: Too few training samples')
         return None
 
-    X_train = torch.FloatTensor(X[:train_size]).reshape(-1, SEQ_LENGTH, 1)
-    Y_train = torch.FloatTensor(Y[:train_size]).reshape(-1, 1)
-    X_test = torch.FloatTensor(X[train_size:]).reshape(-1, SEQ_LENGTH, 1)
-    Y_test = torch.FloatTensor(Y[train_size:]).reshape(-1, 1)
+    X_train = torch.FloatTensor(X[:train_size]).reshape(-1, SEQ_LENGTH, 1)          # 训练集输入
+    Y_train = torch.FloatTensor(Y[:train_size]).reshape(-1, 1)                      # 训练集输出
+    X_test = torch.FloatTensor(X[train_size:]).reshape(-1, SEQ_LENGTH, 1)           # 测试集输入
+    Y_test = torch.FloatTensor(Y[train_size:]).reshape(-1, 1)                       # 测试集输出
 
     # DataLoader
-    train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=BATCH_SIZE, shuffle=True)
+    train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=BATCH_SIZE, shuffle=True)  # 数据加载器（批量读取数据）
 
     # 模型
     device = torch.device('cpu')
-    model = PriceLSTM(input_size=1, hidden_size=HIDDEN_SIZE, num_layers=NUM_LAYERS, dropout=DROPOUT).to(device)
+    model = PriceLSTM(
+        input_size=1, 
+        hidden_size=HIDDEN_SIZE, 
+        num_layers=NUM_LAYERS, 
+        dropout=DROPOUT
+        ).to(device)
 
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    criterion = nn.MSELoss()  # 均方误差损失函数
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)  # 优化器（Adam优化算法）    
 
     # 训练
     for epoch in range(EPOCHS):
         model.train()
         for X_batch, Y_batch in train_loader:
             X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
-            optimizer.zero_grad()
-            pred = model(X_batch)
-            loss = criterion(pred, Y_batch)
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad()         # 清零梯度
+            pred = model(X_batch)         # 预测
+            loss = criterion(pred, Y_batch) # 损失
+            loss.backward()                 # 反向传播
+            optimizer.step()                # 更新参数  
 
     # 评估
     model.eval()
-    with torch.no_grad():
-        pred_test = model(X_test.to(device)).cpu().numpy().flatten()
-        Y_test_orig = scaler.inverse_transform(Y_test.reshape(-1, 1)).flatten()
-        pred_test_orig = scaler.inverse_transform(pred_test.reshape(-1, 1)).flatten()
+    with torch.no_grad():       # 不计算梯度
+        pred_test = model(X_test.to(device)).cpu().numpy().flatten()  # 用测试集预测
+        Y_test_orig = scaler.inverse_transform(Y_test.reshape(-1, 1)).flatten()  # 转回原始价格
+        pred_test_orig = scaler.inverse_transform(pred_test.reshape(-1, 1)).flatten()  # 预测值
 
-    mse = mean_squared_error(Y_test_orig, pred_test_orig)
-    rmse = np.sqrt(mse)
-    mae = mean_absolute_error(Y_test_orig, pred_test_orig)
-    r2 = r2_score(Y_test_orig, pred_test_orig)
-    mape = np.mean(np.abs((Y_test_orig - pred_test_orig) / (Y_test_orig + 0.01))) * 100
-
-    print(f'  Results: RMSE={rmse:.4f}, MAE={mae:.4f}, R2={r2:.4f}, MAPE={mape:.2f}%')
+    # 计算评估指标
+    rmse = float(np.sqrt(mean_squared_error(Y_test_orig, pred_test_orig)))
+    mae = float(mean_absolute_error(Y_test_orig, pred_test_orig))
+    r2 = float(r2_score(Y_test_orig, pred_test_orig))
+    mape = float(np.mean(np.abs((Y_test_orig - pred_test_orig) / np.where(Y_test_orig == 0, 1, Y_test_orig))) * 100)
 
     # 保存模型和scaler
     model_path = os.path.join(MDIR, f'lstm_p{product_id}.pth')

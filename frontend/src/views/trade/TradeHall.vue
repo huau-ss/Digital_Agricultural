@@ -311,76 +311,120 @@
 </template>
 
 <script setup>
+/**
+ * 供需信息大厅页面
+ *
+ * 功能说明：
+ * 1. 展示所有供需信息（供应/求购）
+ * 2. 支持按类型、农产品、状态、关键词筛选
+ * 3. 农户可发布供应信息，采购商可发布求购信息
+ * 4. 采购商可购买农户的供应，农户可接受采购商的求购
+ * 5. 支持表格和卡片两种视图
+ */
+
+// ==================== Vue 核心库 ====================
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus, Grid, Menu } from '@element-plus/icons-vue'
+
+// ==================== 状态管理 ====================
 import { useUserStore } from '@/stores/user'
+
+// ==================== API 接口 ====================
 import { getTradeInfoList, createTradeInfo, updateTradeInfo, deleteTradeInfo } from '@/api/tradeInfo'
 import { getProducts } from '@/api/dataCollection'
 import { createOrder, acceptOrder } from '@/api/order'
 
+// ==================== 用户信息 ====================
+// 从 Pinia store 获取当前登录用户信息
 const userStore = useUserStore()
+
+// 当前用户ID，用于判断是否是自己发布的信息
 const currentUserId = computed(() => userStore.userInfo?.id)
+
+// 当前用户角色：farmer（农户）或 buyer（采购商）
 const userRole = computed(() => userStore.userRole)
 
+// ==================== 页面状态变量 ====================
+// 列表加载状态
 const loading = ref(false)
+
+// 表单提交加载状态，防止重复提交
 const submitLoading = ref(false)
+
+// 视图模式：table（表格）或 card（卡片）
 const viewMode = ref('table')
+
+// 供需信息列表数据
 const tableData = ref([])
+
+// 农产品下拉选项
 const products = ref([])
 
+// ==================== 分页配置 ====================
 const pagination = reactive({
-  page: 1,
-  pageSize: 10,
-  total: 0
+  page: 1,         // 当前页码
+  pageSize: 10,    // 每页条数
+  total: 0          // 总记录数
 })
 
+// ==================== 搜索筛选表单 ====================
 const searchForm = reactive({
-  info_type: '',
-  product: '',
-  status: 'active',
-  keyword: ''
+  info_type: '',   // 信息类型：supply（供应）/ demand（求购）
+  product: '',     // 农产品ID
+  status: 'active', // 状态：active（进行中）/ completed（已成交）/ expired（已过期）/ cancelled（已取消）
+  keyword: ''      // 关键词搜索
 })
 
-const publishDialogVisible = ref(false)
-const detailDialogVisible = ref(false)
-const orderDialogVisible = ref(false)
-const isEdit = ref(false)
-const currentItem = ref(null)
+// ==================== 弹窗状态 ====================
+const publishDialogVisible = ref(false)  // 发布信息弹窗
+const detailDialogVisible = ref(false)    // 详情弹窗
+const orderDialogVisible = ref(false)     // 购买/接受订单弹窗
+const isEdit = ref(false)                 // 是否为编辑模式
+const currentItem = ref(null)            // 当前操作的信息项
+
+// 表单引用，用于触发验证
 const publishFormRef = ref(null)
 const orderFormRef = ref(null)
-const orderDialogType = ref('buy') // 'buy' 购买 或 'accept' 接受订单
 
+// 订单对话框类型：'buy'（购买）或 'accept'（接受订单）
+const orderDialogType = ref('buy')
+
+// ==================== 发布信息表单 ====================
 const publishForm = reactive({
-  info_type: 'supply',
-  product: null,
-  quantity: 1000,
-  unit: '斤',
-  expected_price: null,
-  origin: '',
-  contact_phone: '',
-  description: ''
+  info_type: 'supply',     // 信息类型
+  product: null,           // 农产品ID
+  quantity: 1000,          // 数量
+  unit: '斤',              // 单位
+  expected_price: null,    // 期望价格
+  origin: '',               // 产地
+  contact_phone: '',       // 联系电话
+  description: ''           // 详细信息
 })
 
+// ==================== 订单表单 ====================
 const orderForm = reactive({
-  trade_info_id: null,
-  product_id: null,
-  product_name: '',
-  quantity: 100,
-  max_quantity: 0,
-  unit: '斤',
-  unit_price: null,
-  delivery_address: '',
-  buyer_contact: '',
-  remark: ''
+  trade_info_id: null,    // 关联的供需信息ID
+  product_id: null,       // 农产品ID
+  product_name: '',       // 农产品名称（用于显示）
+  quantity: 100,          // 购买数量
+  max_quantity: 0,        // 最大可购买数量（不能超过供应量）
+  unit: '斤',             // 单位
+  unit_price: null,       // 单价
+  delivery_address: '',    // 收货地址
+  buyer_contact: '',      // 买方联系电话
+  remark: ''               // 备注
 })
 
+// ==================== 表单验证规则 ====================
+// 发布信息表单验证规则
 const publishRules = {
   info_type: [{ required: true, message: '请选择信息类型', trigger: 'change' }],
   product: [{ required: true, message: '请选择农产品', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }]
 }
 
+// 订单表单验证规则
 const orderRules = {
   quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
   unit_price: [{ required: true, message: '请输入单价', trigger: 'blur' }],
@@ -388,18 +432,34 @@ const orderRules = {
   buyer_contact: [{ required: true, message: '请输入联系电话', trigger: 'blur' }]
 }
 
-// 判断采购商是否可以购买（看到农户的供应信息，且状态为进行中）
+// ==================== 权限判断函数 ====================
+
+/**
+ * 判断采购商是否可以购买某条信息
+ * 条件：当前用户是采购商 + 信息是供应类型 + 状态为进行中 + 不是自己发布的
+ */
 const canBuy = (item) => {
   return userRole.value === 'buyer' && item.info_type === 'supply' && item.status === 'active' && item.publisher !== currentUserId.value
 }
 
-// 判断农户是否可以接受（看到采购商的求购信息，且状态为进行中）
+/**
+ * 判断农户是否可以接受某条求购信息
+ * 条件：当前用户是农户 + 信息是求购类型 + 状态为进行中 + 不是自己发布的
+ */
 const canAccept = (item) => {
   return userRole.value === 'farmer' && item.info_type === 'demand' && item.status === 'active' && item.publisher !== currentUserId.value
 }
 
+// ==================== 计算属性 ====================
+// 根据对话框类型动态显示标题
 const orderDialogTitle = computed(() => orderDialogType.value === 'buy' ? '购买商品' : '接受订单')
 
+// ==================== 数据加载函数 ====================
+
+/**
+ * 加载农产品列表
+ * 用于填充发布信息时的下拉选项
+ */
 const loadProducts = async () => {
   try {
     const res = await getProducts()
@@ -411,24 +471,32 @@ const loadProducts = async () => {
   }
 }
 
+/**
+ * 加载供需信息列表
+ * 支持分页和筛选，会自动过滤空值参数
+ */
 const loadData = async () => {
   loading.value = true
   try {
+    // 构建请求参数
     const params = {
       page: pagination.page,
       page_size: pagination.pageSize,
       ...searchForm
     }
+    // 过滤空值，避免传给后端无效参数
     Object.keys(params).forEach(key => {
       if (params[key] === '' || params[key] === null || params[key] === undefined) {
         delete params[key]
       }
     })
     const res = await getTradeInfoList(params)
+    // 处理分页响应格式
     if (res.results) {
       tableData.value = res.results
       pagination.total = res.count
     } else if (Array.isArray(res)) {
+      // 处理非分页格式
       tableData.value = res
       pagination.total = res.length
     }
@@ -439,11 +507,21 @@ const loadData = async () => {
   }
 }
 
+// ==================== 搜索和筛选 ====================
+
+/**
+ * 搜索按钮点击处理
+ * 重置到第一页后重新加载数据
+ */
 const handleSearch = () => {
   pagination.page = 1
   loadData()
 }
 
+/**
+ * 重置筛选条件
+ * 恢复到默认状态并重新加载
+ */
 const handleReset = () => {
   searchForm.info_type = ''
   searchForm.product = ''
@@ -452,9 +530,17 @@ const handleReset = () => {
   handleSearch()
 }
 
+// ==================== 发布信息相关 ====================
+
+/**
+ * 打开发布信息弹窗
+ * 根据用户角色自动设置信息类型（农户→供应，采购商→求购）
+ */
 const openPublishDialog = () => {
   isEdit.value = false
+  // 根据角色自动选择信息类型
   publishForm.info_type = userRole.value === 'farmer' ? 'supply' : 'demand'
+  // 重置表单字段
   publishForm.product = null
   publishForm.quantity = 1000
   publishForm.unit = '斤'
@@ -465,6 +551,10 @@ const openPublishDialog = () => {
   publishDialogVisible.value = true
 }
 
+/**
+ * 提交发布/编辑表单
+ * 区分新增和编辑两种操作
+ */
 const handleSubmit = async () => {
   if (!publishFormRef.value) return
   await publishFormRef.value.validate(async (valid) => {
@@ -473,15 +563,18 @@ const handleSubmit = async () => {
     submitLoading.value = true
     try {
       if (isEdit.value) {
+        // 编辑模式：更新已有信息
         await updateTradeInfo(currentItem.value.id, publishForm)
         ElMessage.success('更新成功')
       } else {
+        // 新增模式：创建新信息
         await createTradeInfo(publishForm)
         ElMessage.success('发布成功')
       }
       publishDialogVisible.value = false
       loadData()
     } catch (error) {
+      // 从错误响应中提取错误信息显示
       const msg = error?.response?.data?.info_type?.[0] || error?.response?.data?.error || '操作失败'
       ElMessage.error(msg)
     } finally {
@@ -490,28 +583,43 @@ const handleSubmit = async () => {
   })
 }
 
+// ==================== 详情查看 ====================
+
+/**
+ * 查看信息详情
+ * 将当前行数据存入currentItem并打开详情弹窗
+ */
 const viewDetail = (row) => {
   currentItem.value = row
   detailDialogVisible.value = true
 }
 
-// 打开购买对话框
+// ==================== 订单操作 ====================
+
+/**
+ * 打开购买对话框
+ * 将供需信息数据填充到订单表单中
+ */
 const openBuyDialog = (item) => {
   orderDialogType.value = 'buy'
+  // 从供需信息中提取数据填充到订单表单
   orderForm.trade_info_id = item.id
   orderForm.product_id = item.product
   orderForm.product_name = item.product_name
   orderForm.quantity = Number(item.quantity) || 100
-  orderForm.max_quantity = Number(item.quantity) || 0
+  orderForm.max_quantity = Number(item.quantity) || 0  // 最大购买量不能超过供应量
   orderForm.unit = item.unit || '斤'
   orderForm.unit_price = item.expected_price ? Number(item.expected_price) : null
   orderForm.delivery_address = ''
-  orderForm.buyer_contact = userStore.userInfo?.phone || ''
+  orderForm.buyer_contact = userStore.userInfo?.phone || ''  // 自动填充当前用户电话
   orderForm.remark = ''
   orderDialogVisible.value = true
 }
 
-// 打开接受订单对话框
+/**
+ * 打开接受订单对话框（农户视角）
+ * 与购买对话框类似，但标识为接受订单操作
+ */
 const openAcceptDialog = (item) => {
   orderDialogType.value = 'accept'
   orderForm.trade_info_id = item.id
@@ -527,7 +635,10 @@ const openAcceptDialog = (item) => {
   orderDialogVisible.value = true
 }
 
-// 提交订单
+/**
+ * 提交订单（购买或接受）
+ * 根据orderDialogType区分调用不同的API
+ */
 const handleSubmitOrder = async () => {
   if (!orderFormRef.value) return
   await orderFormRef.value.validate(async (valid) => {
@@ -535,6 +646,7 @@ const handleSubmitOrder = async () => {
 
     submitLoading.value = true
     try {
+      // 构建订单数据
       const orderData = {
         trade_info: orderForm.trade_info_id,
         product: orderForm.product_id,
@@ -547,15 +659,16 @@ const handleSubmitOrder = async () => {
       }
 
       if (orderDialogType.value === 'buy') {
-        // 采购商购买
+        // 采购商购买：调用createOrder
         await createOrder(orderData)
         ElMessage.success('购买成功')
       } else {
-        // 农户接受订单
+        // 农户接受订单：调用acceptOrder
         await acceptOrder(orderData)
         ElMessage.success('订单已接受')
       }
 
+      // 关闭弹窗并刷新列表
       orderDialogVisible.value = false
       detailDialogVisible.value = false
       loadData()
@@ -568,8 +681,15 @@ const handleSubmitOrder = async () => {
   })
 }
 
+// ==================== 删除操作 ====================
+
+/**
+ * 删除供需信息
+ * 仅允许发布者删除自己发布的信息
+ */
 const handleDelete = async (row) => {
   try {
+    // 弹出确认框
     await ElMessageBox.confirm('确定要删除这条信息吗？', '提示', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
@@ -579,31 +699,44 @@ const handleDelete = async (row) => {
     ElMessage.success('删除成功')
     loadData()
   } catch (error) {
+    // 用户取消时不显示错误
     if (error !== 'cancel') {
       ElMessage.error('删除失败')
     }
   }
 }
 
+// ==================== 工具函数 ====================
+
+/**
+ * 获取状态对应的标签颜色类型
+ * 用于el-tag组件的type属性
+ */
 const getStatusType = (status) => {
   const map = {
-    active: 'success',
-    completed: 'info',
-    expired: 'warning',
-    cancelled: 'danger'
+    active: 'success',      // 进行中 → 绿色
+    completed: 'info',      // 已成交 → 灰色
+    expired: 'warning',    // 已过期 → 橙色
+    cancelled: 'danger'     // 已取消 → 红色
   }
   return map[status] || 'info'
 }
 
+/**
+ * 格式化日期为本地化字符串
+ * 将 ISO 日期格式转换为易读的中文日期时间格式
+ */
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
   return date.toLocaleString('zh-CN')
 }
 
+// ==================== 生命周期 ====================
+// 组件挂载时加载初始数据
 onMounted(() => {
-  loadProducts()
-  loadData()
+  loadProducts()  // 加载农产品列表
+  loadData()       // 加载供需信息列表
 })
 </script>
 

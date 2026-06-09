@@ -186,14 +186,16 @@ class VisualizationViewSet(viewsets.ViewSet):
     """可视化数据视图集"""
 
     def list(self, request):
-        """获取所有可用产品列表，按最近30天数据量排序"""
+        """获取所有可用产品列表，按最近180天数据量排序"""
         today = datetime.now().date()
-        thirty_days_ago = today - timedelta(days=30)
+        # 使用180天确保能查到历史数据
+        query_days = 180
+        start_date = today - timedelta(days=query_days)
 
         from django.db.models import Count
 
         products = AgriculturalProduct.objects.filter(is_active=True).annotate(
-            recent_count=Count('cleaned_price_data', filter=ModelQ(cleaned_price_data__date__gte=thirty_days_ago))
+            recent_count=Count('price_history', filter=ModelQ(price_history__date__gte=start_date))
         ).values('id', 'name', 'category', 'recent_count').order_by('-recent_count', 'id')
 
         return Response(list(products))
@@ -201,8 +203,12 @@ class VisualizationViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def price_trend(self, request):
         """
-        获取近30天价格走势数据
+        获取近N天价格走势数据
         用于 ECharts 折线图
+
+        参数:
+            product_id: 产品ID (必需)
+            days: 天数，默认30天
         """
         product_id = request.query_params.get('product_id')
         days = int(request.query_params.get('days', 30))
@@ -210,13 +216,17 @@ class VisualizationViewSet(viewsets.ViewSet):
         if not product_id:
             return Response({'error': 'product_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        start_date = datetime.now().date() - timedelta(days=days)
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
 
-        # 查询清洗后的数据
-        queryset = CleanedPriceData.objects.filter(
+        # 使用原始数据表 PriceHistory（数据更完整）
+        from apps.data_collection.models import PriceHistory
+
+        queryset = PriceHistory.objects.filter(
             product_id=product_id,
-            date__gte=start_date
-        ).values('date', 'avg_price', 'market_name').order_by('date')
+            date__gte=start_date,
+            date__lte=end_date
+        ).values('date', 'avg_price').order_by('date')
 
         # 按日期分组，计算每日平均价格
         daily_data = {}
@@ -257,17 +267,21 @@ class VisualizationViewSet(viewsets.ViewSet):
         """
         获取按市场分组的价格走势
         """
+        from apps.data_collection.models import PriceHistory
+
         product_id = request.query_params.get('product_id')
         days = int(request.query_params.get('days', 30))
 
         if not product_id:
             return Response({'error': 'product_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        start_date = datetime.now().date() - timedelta(days=days)
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
 
-        queryset = CleanedPriceData.objects.filter(
+        queryset = PriceHistory.objects.filter(
             product_id=product_id,
-            date__gte=start_date
+            date__gte=start_date,
+            date__lte=end_date
         ).values('date', 'avg_price', 'market_name').order_by('date', 'market_name')
 
         # 按市场分组
@@ -288,10 +302,11 @@ class VisualizationViewSet(viewsets.ViewSet):
         # 构建每个市场的数据
         result = []
         for market, data in market_data.items():
-            market_queryset = CleanedPriceData.objects.filter(
+            market_queryset = PriceHistory.objects.filter(
                 product_id=product_id,
                 market_name=market,
-                date__gte=start_date
+                date__gte=start_date,
+                date__lte=end_date
             ).values('date', 'avg_price').order_by('date')
 
             daily_prices = {}
@@ -318,13 +333,17 @@ class VisualizationViewSet(viewsets.ViewSet):
         获取省份热力图数据
         用于 ECharts 中国地图
         """
+        from apps.data_collection.models import PriceHistory
+
         product_id = request.query_params.get('product_id')
         days = int(request.query_params.get('days', 30))
 
-        start_date = datetime.now().date() - timedelta(days=days)
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
 
-        queryset = CleanedPriceData.objects.filter(
-            date__gte=start_date
+        queryset = PriceHistory.objects.filter(
+            date__gte=start_date,
+            date__lte=end_date
         )
 
         if product_id:
@@ -377,6 +396,8 @@ class VisualizationViewSet(viewsets.ViewSet):
         """
         获取多产品价格对比
         """
+        from apps.data_collection.models import PriceHistory
+
         product_ids = request.query_params.get('product_ids', '')
         days = int(request.query_params.get('days', 30))
 
@@ -386,15 +407,17 @@ class VisualizationViewSet(viewsets.ViewSet):
             # 默认取前5个产品
             product_ids = list(AgriculturalProduct.objects.filter(is_active=True).values_list('id', flat=True)[:5])
 
-        start_date = datetime.now().date() - timedelta(days=days)
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
 
         result = []
         for pid in product_ids:
             try:
                 product = AgriculturalProduct.objects.get(id=pid)
-                avg_price = CleanedPriceData.objects.filter(
+                avg_price = PriceHistory.objects.filter(
                     product_id=pid,
-                    date__gte=start_date
+                    date__gte=start_date,
+                    date__lte=end_date
                 ).aggregate(avg=Avg('avg_price'))['avg']
 
                 result.append({

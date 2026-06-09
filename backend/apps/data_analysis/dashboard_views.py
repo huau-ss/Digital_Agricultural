@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.db.models import Count, Q
 from datetime import datetime, timedelta
 
-from apps.data_collection.models import AgriculturalProduct, CleanedPriceData
+from apps.data_collection.models import AgriculturalProduct
 from apps.decision_support.models import TradeInfo
 from apps.users.models import SystemMessage
 from .lstm_service import predict_product_price, get_product_price_history
@@ -82,8 +82,9 @@ class DashboardSummaryView(APIView):
         for product in products:
             try:
                 # 获取当前价格
-                latest_price = CleanedPriceData.objects.filter(
-                    product=product
+                from apps.data_collection.models import PriceHistory
+                latest_price = PriceHistory.objects.filter(
+                    product_id=product.id
                 ).order_by('-date').first()
 
                 if not latest_price:

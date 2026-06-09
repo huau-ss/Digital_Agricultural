@@ -1,6 +1,8 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q, Avg, Max, Min, Sum
 from .models import AgriculturalProduct, PriceHistory, CleanedPriceData
 from .serializers import (
@@ -252,3 +254,107 @@ class CleanedPriceDataViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset().filter(is_outlier=True)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+
+# ==================== 管理员数据管理 API ====================
+
+class TriggerDataCollectionView(APIView):
+    """手动触发数据采集"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not request.user.is_staff and request.user.role != 'admin':
+            return Response({'code': 403, 'message': '无权限'}, status=status.HTTP_403_FORBIDDEN)
+
+        import logging
+        logger = logging.getLogger('django')
+
+        target_date_str = request.data.get('date')
+        if target_date_str:
+            from datetime import datetime
+            try:
+                target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return Response({
+                    'code': 400,
+                    'message': '日期格式错误，请使用 YYYY-MM-DD',
+                    'data': None
+                }, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            from datetime import date, timedelta
+            target_date = date.today() - timedelta(days=1)
+
+        logger.info(f"手动触发数据采集，目标日期: {target_date}")
+
+        try:
+            from scripts.crawl_daily import DailyCrawler
+            crawler = DailyCrawler(dry_run=False)
+
+            before_count = PriceHistory.objects.count()
+
+            crawler.load_known_products()
+            crawler.crawl_yesterday_data(target_date)
+
+            after_count = PriceHistory.objects.count()
+            added_count = after_count - before_count
+
+            return Response({
+                'code': 200,
+                'message': '数据采集完成',
+                'data': {
+                    'target_date': str(target_date),
+                    'products_processed': crawler.stats['products_processed'],
+                    'prices_added': crawler.stats['prices_added'],
+                    'new_records': added_count,
+                    'errors': crawler.stats['errors'],
+                }
+            })
+        except Exception as e:
+            logger.error(f"数据采集失败: {e}")
+            return Response({
+                'code': 500,
+                'message': f'采集失败: {str(e)}',
+                'data': None
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+class TriggerDataCleaningView(APIView):
+    """手动触发数据清洗"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not request.user.is_staff and request.user.role != 'admin':
+            return Response({'code': 403, 'message': '无权限'}, status=status.HTTP_403_FORBIDDEN)
+
+        from scripts.clean_price_data import PriceDataCleaner
+        import logging
+        logger = logging.getLogger('django')
+
+        days_back = int(request.data.get('days_back', 30))
+        product_id = request.data.get('product_id')
+
+        logger.info(f"手动触发数据清洗... days_back={days_back}, product_id={product_id}")
+
+        try:
+            cleaner = PriceDataCleaner()
+            stats = cleaner.clean(days_back=days_back, product_id=int(product_id) if product_id else None)
+
+            return Response({
+                'code': 200,
+                'message': '数据清洗完成',
+                'data': {
+                    'processed': stats.get('total_processed', 0),
+                    'duplicates_removed': stats.get('duplicates_removed', 0),
+                    'outliers_marked': stats.get('outliers_marked', 0),
+                    'cleaned_inserted': stats.get('cleaned_inserted', 0),
+                    'cleaned_updated': stats.get('cleaned_updated', 0),
+                    'errors': stats.get('errors', 0),
+                }
+            })
+        except Exception as e:
+            return Response({
+                'code': 500,
+                'message': f'清洗失败: {str(e)}',
+                'data': None
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -10,6 +10,18 @@ const api = axios.create({
   }
 })
 
+let isRefreshing = false
+let refreshSubscribers = []
+
+const subscribeTokenRefresh = (callback) => {
+  refreshSubscribers.push(callback)
+}
+
+const onTokenRefreshed = (access) => {
+  refreshSubscribers.forEach(callback => callback(access))
+  refreshSubscribers = []
+}
+
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token')
@@ -35,21 +47,34 @@ api.interceptors.response.use(
         case 401:
           const refreshToken = localStorage.getItem('refresh_token')
           if (refreshToken && !error.config._retry) {
-            error.config._retry = true
-            try {
-              const res = await axios.post('/api/auth/token/refresh/', {
-                refresh: refreshToken
+            if (!isRefreshing) {
+              isRefreshing = true
+              error.config._retry = true
+              try {
+                const res = await axios.post('/api/auth/token/refresh/', {
+                  refresh: refreshToken
+                })
+                const { access } = res.data
+                localStorage.setItem('access_token', access)
+                onTokenRefreshed(access)
+                isRefreshing = false
+                return api(error.config)
+              } catch (refreshError) {
+                isRefreshing = false
+                localStorage.removeItem('access_token')
+                localStorage.removeItem('refresh_token')
+                refreshSubscribers = []
+                router.push('/login')
+                ElMessage.error('登录已过期，请重新登录')
+                return Promise.reject(refreshError)
+              }
+            } else {
+              return new Promise((resolve) => {
+                subscribeTokenRefresh((access) => {
+                  error.config.headers.Authorization = `Bearer ${access}`
+                  resolve(api(error.config))
+                })
               })
-              const { access } = res.data
-              localStorage.setItem('access_token', access)
-              error.config.headers.Authorization = `Bearer ${access}`
-              return api(error.config)
-            } catch (refreshError) {
-              localStorage.removeItem('access_token')
-              localStorage.removeItem('refresh_token')
-              router.push('/login')
-              ElMessage.error('登录已过期，请重新登录')
-              return Promise.reject(refreshError)
             }
           } else {
             localStorage.removeItem('access_token')

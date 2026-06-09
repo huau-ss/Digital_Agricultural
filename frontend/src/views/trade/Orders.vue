@@ -131,58 +131,113 @@
 </template>
 
 <script setup>
+/**
+ * 订单管理页面
+ *
+ * 功能说明：
+ * 1. 展示当前用户相关的所有订单（作为买方或卖方）
+ * 2. 支持按订单状态筛选
+ * 3. 卖方可以：确认订单、发货
+ * 4. 买方可以：确认收货
+ * 5. 双方都可以：取消未完成的订单
+ *
+ * 订单状态流转：
+ * pending（待确认）→ confirmed（已确认）→ shipped（已发货）→ completed（已完成）
+ *                         ↓
+ *                    cancelled（已取消）
+ */
+
+// ==================== Vue 核心库 ====================
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Box } from '@element-plus/icons-vue'
+
+// ==================== API 接口 ====================
 import { getOrders, confirmOrder, shipOrder, completeOrder, cancelOrder } from '@/api/order'
+
+// ==================== 状态管理 ====================
 import { useUserStore } from '@/stores/user'
 
+// 从 Pinia store 获取用户信息
 const userStore = useUserStore()
 
-const orders = ref([])
-const currentPage = ref(1)
-const pageSize = ref(10)
-const total = ref(0)
-const statusFilter = ref('')
-const loading = ref(false)
+// ==================== 页面状态变量 ====================
+const orders = ref([])           // 订单列表数据
+const currentPage = ref(1)       // 当前页码
+const pageSize = ref(10)         // 每页条数
+const total = ref(0)             // 总记录数
+const statusFilter = ref('')     // 状态筛选值
+const loading = ref(false)       // 加载状态
 
+// ==================== 角色判断函数 ====================
+
+/**
+ * 判断当前用户是否是该订单的卖方
+ * 使用 Number() 确保类型一致后比较
+ */
 const isSeller = (order) => Number(order.seller_id || order.seller) === Number(userStore.userId)
+
+/**
+ * 判断当前用户是否是该订单的买方
+ */
 const isBuyer = (order) => Number(order.buyer_id || order.buyer) === Number(userStore.userId)
 
+// ==================== 工具函数 ====================
+
+/**
+ * 获取订单状态对应的标签颜色类型
+ * 用于 el-tag 组件的 type 属性
+ */
 const getStatusType = (status) => {
   const typeMap = {
-    pending: 'warning',
-    confirmed: 'primary',
-    shipped: 'info',
-    completed: 'success',
-    cancelled: 'info'
+    pending: 'warning',    // 待确认 → 橙色
+    confirmed: 'primary',  // 已确认 → 蓝色
+    shipped: 'info',      // 已发货 → 灰色
+    completed: 'success',  // 已完成 → 绿色
+    cancelled: 'info'      // 已取消 → 灰色
   }
   return typeMap[status] || ''
 }
 
+/**
+ * 格式化日期为本地化字符串
+ * 将 ISO 日期格式转换为易读的中文日期时间格式
+ */
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
   return date.toLocaleString('zh-CN')
 }
 
+// ==================== 数据加载 ====================
+
+/**
+ * 获取订单列表
+ * 支持分页和状态筛选，会处理多种响应格式
+ */
 const fetchOrders = async () => {
   loading.value = true
   try {
+    // 构建请求参数
     const params = { page: currentPage.value, page_size: pageSize.value }
+    // 如果有状态筛选，添加到参数中
     if (statusFilter.value) {
       params.status = statusFilter.value
     }
 
     const res = await getOrders(params)
 
+    // 处理分页响应格式（兼容多种后端返回格式）
     if (res && res.results) {
+      // 标准分页格式 { results: [...], count: N }
       orders.value = res.results
       total.value = res.count || res.results.length
     } else if (res && Array.isArray(res)) {
+      // 直接返回数组格式
       orders.value = res
       total.value = res.length
     } else if (res && res.data) {
+      // 包装在 data 属性中 { data: { results: [...] } }
       orders.value = res.data.results || res.data
       total.value = res.data.count || orders.value.length
     } else {
@@ -190,7 +245,7 @@ const fetchOrders = async () => {
       total.value = 0
     }
 
-    // 调试信息
+    // 调试信息（开发时查看数据用）
     console.log('========== 订单调试 ==========')
     console.log('当前用户ID:', userStore.userId)
     console.log('用户角色:', userStore.userRole)
@@ -221,15 +276,28 @@ const fetchOrders = async () => {
   }
 }
 
+// ==================== 事件处理函数 ====================
+
+/**
+ * 状态筛选变更处理
+ * 切换筛选时重置到第一页
+ */
 const handleFilterChange = () => {
   currentPage.value = 1
   fetchOrders()
 }
 
+/**
+ * 分页页码变更处理
+ */
 const handlePageChange = () => {
   fetchOrders()
 }
 
+/**
+ * 确认订单（卖方操作）
+ * 将订单状态从 pending 改为 confirmed
+ */
 const handleConfirm = async (orderId) => {
   try {
     await ElMessageBox.confirm('确认此订单?', '确认订单', { type: 'info' })
@@ -243,6 +311,10 @@ const handleConfirm = async (orderId) => {
   }
 }
 
+/**
+ * 发货（卖方操作）
+ * 将订单状态从 confirmed 改为 shipped
+ */
 const handleShip = async (orderId) => {
   try {
     await ElMessageBox.confirm('确认发货?', '发货', { type: 'info' })
@@ -256,6 +328,10 @@ const handleShip = async (orderId) => {
   }
 }
 
+/**
+ * 确认收货（买方操作）
+ * 将订单状态从 shipped 改为 completed，交易完成
+ */
 const handleComplete = async (orderId) => {
   try {
     await ElMessageBox.confirm('确认收货?', '完成订单', { type: 'info' })
@@ -269,6 +345,10 @@ const handleComplete = async (orderId) => {
   }
 }
 
+/**
+ * 取消订单
+ * 将订单状态改为 cancelled，可由买方或卖方在未完成时操作
+ */
 const handleCancel = async (orderId) => {
   try {
     await ElMessageBox.confirm('确定取消此订单?', '取消订单', { type: 'warning' })
@@ -282,6 +362,8 @@ const handleCancel = async (orderId) => {
   }
 }
 
+// ==================== 生命周期 ====================
+// 组件挂载时加载订单数据
 onMounted(() => {
   fetchOrders()
 })

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 价格预警检测服务
-当系统通过 LSTM 预测到某产品未来价格较今日跌幅超过 10% 或涨幅超过 15% 时，
+当系统通过 LSTM 预测到某产品未来价格较今日跌幅超过阈值 或涨幅超过阈值时，
 为相关用户生成一条预警记录。
 """
 import logging
@@ -10,12 +10,41 @@ from django.utils import timezone
 from apps.users.models import SystemMessage, CustomUser
 from apps.data_collection.models import CleanedPriceData, AgriculturalProduct
 from apps.data_analysis.lstm_service import predict_product_price
+from .system_config import (
+    SystemConfig, CONFIG_PRICE_DROP_THRESHOLD, CONFIG_PRICE_RISE_THRESHOLD,
+    CONFIG_PUSH_STRATEGY, DEFAULT_PRICE_DROP_THRESHOLD, DEFAULT_PRICE_RISE_THRESHOLD,
+    DEFAULT_PUSH_STRATEGY
+)
 
 logger = logging.getLogger(__name__)
 
-# 价格波动阈值
-PRICE_DROP_THRESHOLD = 10  # 跌幅超过 10%
-PRICE_RISE_THRESHOLD = 15  # 涨幅超过 15%
+
+def _get_thresholds():
+    """从数据库读取阈值，无则用默认值"""
+    try:
+        drop = float(SystemConfig.get_value(CONFIG_PRICE_DROP_THRESHOLD, DEFAULT_PRICE_DROP_THRESHOLD))
+        rise = float(SystemConfig.get_value(CONFIG_PRICE_RISE_THRESHOLD, DEFAULT_PRICE_RISE_THRESHOLD))
+    except Exception:
+        drop, rise = DEFAULT_PRICE_DROP_THRESHOLD, DEFAULT_PRICE_RISE_THRESHOLD
+    return drop, rise
+
+
+def _should_push(role):
+    """根据推送策略判断是否应向该角色推送"""
+    try:
+        strategy = SystemConfig.get_value(CONFIG_PUSH_STRATEGY, DEFAULT_PUSH_STRATEGY)
+    except Exception:
+        strategy = DEFAULT_PUSH_STRATEGY
+
+    if strategy == 'none':
+        return False
+    if strategy == 'all':
+        return True
+    if strategy == 'farmers_only' and role == 'farmer':
+        return True
+    if strategy == 'buyers_only' and role == 'buyer':
+        return True
+    return False
 
 
 def check_price_warning(product_id, product_name=None):
@@ -38,9 +67,12 @@ def check_price_warning(product_id, product_name=None):
             except AgriculturalProduct.DoesNotExist:
                 product_name = f"产品{product_id}"
 
+        PRICE_DROP_THRESHOLD, PRICE_RISE_THRESHOLD = _get_thresholds()
+
         # 获取当前价格（今日或最近一天的平均价）
+        from apps.data_collection.models import PriceHistory
         today = timezone.now().date()
-        current_price_data = CleanedPriceData.objects.filter(
+        current_price_data = PriceHistory.objects.filter(
             product_id=product_id,
             date__lte=today
         ).order_by('-date').first()
@@ -136,10 +168,14 @@ def generate_warning_messages(product_id, product_name, warning_info):
     change_day = warning_info['change_day']
     change_type = warning_info['change_type']
 
-    # 获取所有相关用户（农户和采购商）
-    users = CustomUser.objects.filter(is_active=True)
+    # 获取所有相关用户（根据推送策略筛选）
+    users = CustomUser.objects.filter(is_active=True, is_approved=True)
 
     for user in users:
+        # 根据推送策略过滤
+        if not _should_push(user.role):
+            continue
+
         # 检查是否已经发送过类似的预警（最近24小时内）
         recent_warning = SystemMessage.objects.filter(
             user=user,
@@ -223,7 +259,11 @@ def generate_warning_messages(product_id, product_name, warning_info):
             priority=priority,
             related_product_id=product_id,
             related_product_name=product_name,
-            price_change_percent=Decimal(str(change_percent))
+            price_change_percent=Decimal(str(change_percent)),
+            current_price=Decimal(str(current_price)),
+            predicted_price=Decimal(str(predicted_price)),
+            change_direction=direction,
+            change_days=change_day
         )
         message_count += 1
 

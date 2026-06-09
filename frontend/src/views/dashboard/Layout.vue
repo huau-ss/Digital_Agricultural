@@ -36,6 +36,10 @@
           <span>利润模拟</span>
         </el-menu-item>
 
+        <el-menu-item index="/dashboard/price-warning">
+          <span>价格预警</span>
+        </el-menu-item>
+
         <el-menu-item index="/dashboard/trade-hall">
           <span>供需大厅</span>
         </el-menu-item>
@@ -103,7 +107,7 @@ const handleCommand = async (command) => {
       router.push('/dashboard/profile')
       break
     case 'changePassword':
-      router.push('/dashboard/change-password')
+      router.push('/dashboard/profile')
       break
     case 'logout':
       try {

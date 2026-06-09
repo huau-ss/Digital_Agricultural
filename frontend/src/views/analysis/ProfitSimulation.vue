@@ -547,16 +547,17 @@ import { getProducts } from '@/api/dataCollection'
 import { getPricePrediction } from '@/api/prediction'
 import { useUserStore } from '@/stores/user'
 
+// 判断当前用户是否是"采购商"
 const userStore = useUserStore()
 const isBuyer = computed(() => userStore.userRole === 'buyer')
 
-const loading = ref(false)
-const products = ref([])
-const formRef = ref(null)
-const predictionChartRef = ref(null)
-let predictionChart = null
+const loading = ref(false)              // 加载状态
+const products = ref([])                // 产品列表
+const formRef = ref(null)               // 表单引用
+const predictionChartRef = ref(null)    // 图表引用
+let predictionChart = null              // ECharts实例（非响应式）
 
-const predictionDays = ref(14)
+const predictionDays = ref(14)          // 预测天数
 
 const form = reactive({
   product_id: null,
@@ -585,18 +586,18 @@ const rules = computed(() => {
   }
 })
 
-const predictionResult = ref(null)
-const profitResult = ref(null)
-const advice = ref('')
+const predictionResult = ref(null)  // 价格预测结果
+const profitResult = ref(null)     // 利润计算结果
+const advice = ref('')             // 建议文本
 
 // 加载农产品列表
 const loadProducts = async () => {
   try {
-    const res = await getProducts()
-    if (res && Array.isArray(res)) {
-      products.value = res
+    const res = await getProducts()         // 调用API获取产品
+    if (res && Array.isArray(res)) {        // 检查返回数据
+      products.value = res                  // 保存到响应式变量
       if (res.length > 0) {
-        form.product_id = res[0].id
+        form.product_id = res[0].id         // 默认选中第一个产品
       }
     }
   } catch (error) {
@@ -611,11 +612,12 @@ const fetchPrediction = async () => {
     return null
   }
   try {
-    const res = await getPricePrediction({
+    const res = await getPricePrediction({      // 调用API
       product_id: form.product_id,
       days: predictionDays.value
     })
     console.log('API response:', res)
+    //处理返回结果
     if (res && res.success) {
       predictionResult.value = res
       await nextTick()
@@ -682,19 +684,20 @@ const calculateProfit = async () => {
       ? historical.prices[historical.prices.length - 1] / 2  // 转为斤
       : 0
 
+    //获取未来所有预测价格
     const predictedPrices = prediction.prices || []
 
-    let predictedMaxPrice = 0
-    let suggestedDelayDays = 0
-    let adviceText = ''
-    let currentProfit = 0
-    let currentRate = 0
-    let predictedProfit = 0
-    let predictedRate = 0
-    let profitDiff = 0
-    let totalCost = 0
-    let unitCost = 0
-    let totalYield = 0
+    let predictedMaxPrice = 0       // 预测最高价
+    let suggestedDelayDays = 0       // 建议延迟天数
+    let adviceText = ''             // 建议文本
+    let currentProfit = 0           // 当前利润
+    let currentRate = 0             // 当前利润率
+    let predictedProfit = 0         // 预测利润
+    let predictedRate = 0           // 预测利润率
+    let profitDiff = 0              // 利润差异
+    let totalCost = 0              // 总成本
+    let unitCost = 0               // 单位成本
+    let totalYield = 0             // 总产量
 
     if (isBuyer.value) {
       // ========================================
@@ -735,16 +738,34 @@ const calculateProfit = async () => {
       }
 
       // 立即采购时的预估收益（按当前价格采购，按预期售价销售）
+      // 成本：采购价 + 物流 + 仓储
       const currentPurchaseCost = purchaseTotal + logisticsCost + storageCost
+
+      // 收入：当前价格 × 有效数量
       const currentSaleRevenue = currentPrice * effectiveQuantity
+
+      // 利润 = 收入 - 成本
       currentProfit = currentSaleRevenue - currentPurchaseCost
-      currentRate = currentPurchaseCost > 0 ? (currentProfit / currentPurchaseCost * 100) : 0
+
+      // 利润率 = (利润 / 成本) × 100
+      currentRate = currentPurchaseCost > 0 
+        ? (currentProfit / currentPurchaseCost * 100) 
+        : 0
 
       // 择期待购时的预估收益（按预测最低价采购，按预期售价销售）
+      // 成本：预测最高价 × 采购量 + 物流 + 仓储
       const predictedPurchaseCost = predictedMaxPrice * purchaseQuantity + logisticsCost + storageCost
+
+      // 收入：预期售价 × 有效数量
       const predictedSaleRevenue = expectedSalePrice * effectiveQuantity
+
+      // 利润 = 收入 - 成本
       predictedProfit = predictedSaleRevenue - predictedPurchaseCost
-      predictedRate = predictedPurchaseCost > 0 ? (predictedProfit / predictedPurchaseCost * 100) : 0
+
+      // 利润率
+      predictedRate = predictedPurchaseCost > 0 
+        ? (predictedProfit / predictedPurchaseCost * 100) 
+        : 0
 
       // 节省的成本差异（正值表示择期待购更划算）
       profitDiff = currentPurchaseCost - predictedPurchaseCost
@@ -763,6 +784,7 @@ const calculateProfit = async () => {
                      `可结合实际情况灵活安排采购时间。`
       }
 
+      //保存计算结果
       profitResult.value = {
         current_price: currentPrice.toFixed(2),
         predicted_max_price: predictedMaxPrice.toFixed(2),

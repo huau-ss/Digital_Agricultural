@@ -71,6 +71,14 @@
                   :value="product.id"
                 />
               </el-select>
+              <el-select v-model="selectedProvince" placeholder="选择省份" size="small" clearable @change="onProvinceChange" style="width: 110px; margin-left: 10px;">
+                <el-option
+                  v-for="province in availableProvinces"
+                  :key="province"
+                  :label="province"
+                  :value="province"
+                />
+              </el-select>
               <el-select v-model="predictionDays" placeholder="预测天数" size="small" @change="loadPricePrediction" style="width: 100px; margin-left: 10px;">
                 <el-option label="7天" :value="7" />
                 <el-option label="14天" :value="14" />
@@ -101,7 +109,6 @@
                 <el-option label="7天" :value="7" />
                 <el-option label="15天" :value="15" />
                 <el-option label="30天" :value="30" />
-                <el-option label="60天" :value="60" />
               </el-select>
             </div>
           </div>
@@ -134,22 +141,24 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { Loading } from '@element-plus/icons-vue'
 import {
   getProducts,
-  getDashboardSummary,
+  getCollectionSummary,
   getPriceTrend,
   getProvinceHeatmap,
   getRegionComparison
 } from '@/api/dataCollection'
-import { getPricePrediction } from '@/api/prediction'
+import { getPricePrediction, getPredictableProducts } from '@/api/prediction'
 
 const loading = ref(false)
 const products = ref([])
 const selectedProductId = ref(null)
-const selectedDays = ref(30)
+const selectedProvince = ref(null)  // 选中的省份
+const availableProvinces = ref([])  // 可用的省份列表
+const selectedDays = ref(30)  // 默认查询30天数据
 const predictionDays = ref(7)
 
 const summary = reactive({
@@ -164,7 +173,6 @@ const priceStats = reactive({
   min_price: null
 })
 
-const currentPrice = ref(null)
 const priceTrendData = ref([])
 const regionComparisonData = ref([])
 
@@ -175,7 +183,6 @@ const selectedProductName = computed(() => {
   return product ? product.name : '-'
 })
 const predictionData = ref({
-  historical: { dates: [], prices: [] },
   prediction: { dates: [], prices: [] }
 })
 
@@ -189,11 +196,21 @@ const lineChartRef = ref(null)
 const regionChartRef = ref(null)
 const predictionChartRef = ref(null)
 
-const predictionStatus = computed(() => {
-  if (predictionData.value.prediction.prices.length === 0) return '加载中...'
-  const lastPred = predictionData.value.prediction.prices[predictionData.value.prediction.prices.length - 1]
-  return `最新预测: ${lastPred} 元/公斤`
-})
+const predictionStatus = ref('请选择产品')
+
+const updatePredictionStatus = (res) => {
+  if (!res || !res.success) {
+    predictionStatus.value = res?.error || '加载失败'
+  } else {
+    const prices = res.prediction?.prices || []
+    if (prices.length === 0) {
+      predictionStatus.value = '暂无预测数据'
+    } else {
+      const lastPred = prices[prices.length - 1]
+      predictionStatus.value = `最新预测: ${lastPred} 元/公斤`
+    }
+  }
+}
 
 // 初始化地图
 const mapRegistered = ref(false)
@@ -226,18 +243,14 @@ const updateMapChart = () => {
   // 如果地图未注册，显示空白提示
   if (!mapRegistered.value) {
     mapChart.setOption({
-      title: { text: '地图加载中...', left: 'center', top: 'center', textStyle: { color: '#999' } },
-      xAxis: { show: false },
-      yAxis: { show: false }
+      title: { text: '地图加载中...', left: 'center', top: 'center', textStyle: { color: '#999' } }
     })
     return
   }
 
   if (mapData.length === 0) {
     mapChart.setOption({
-      title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 16 } },
-      xAxis: { show: false },
-      yAxis: { show: false }
+      title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 16 } }
     })
     return
   }
@@ -289,9 +302,6 @@ const updateLineChart = () => {
   if (!lineChart) return
 
   const trendData = priceTrendData.value
-  if (!trendData || trendData.length === 0) {
-    return
-  }
 
   const option = {
     tooltip: { trigger: 'axis', formatter: '{b}<br/>{a}: {c} 元/公斤' },
@@ -335,24 +345,14 @@ const updateRegionChart = () => {
 
   const data = regionComparisonData.value
 
-  // 检查数据
-  if (!data || data.length === 0) {
-    regionChart.setOption({
-      title: { text: '暂无地区对比数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 16 } }
-    })
-    return
-  }
-
   const option = {
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
         const item = data[params[0].dataIndex]
         return `${params[0].name}<br/>
-          地区: ${item.province || '未知'}<br/>
-          市场: ${item.market_name || '未知'}<br/>
           平均价格: ${params[0].value} 元/公斤<br/>
-          数据量: ${item.record_count || 0} 条`
+          数据量: ${item?.record_count || 0} 条`
       }
     },
     xAxis: {
@@ -394,7 +394,9 @@ const updatePredictionChart = () => {
   const option = {
     tooltip: {
       trigger: 'axis',
-      formatter: '{b}<br/>{a}: {c} 元/公斤'
+      formatter: (params) => {
+        return `${params[0].axisValue}<br/>${params[0].seriesName}: ${params[0].value} 元/公斤`
+      }
     },
     xAxis: {
       type: 'category',
@@ -407,7 +409,7 @@ const updatePredictionChart = () => {
       type: 'line',
       data: pred.prices || [],
       smooth: true,
-      lineStyle: { color: '#F56C6C', width: 2, type: 'dashed' },
+      lineStyle: { color: '#F56C6C', width: 2 },
       itemStyle: { color: '#F56C6C' },
       areaStyle: {
         color: {
@@ -429,12 +431,20 @@ const updatePredictionChart = () => {
 // 加载数据
 const loadProducts = async () => {
   try {
+    // 优先加载可预测的产品列表（有足够历史数据和模型）
+    const predRes = await getPredictableProducts()
+    if (predRes && predRes.success && predRes.products && predRes.products.length > 0) {
+      products.value = predRes.products
+      selectedProductId.value = products.value[0].id
+      return true
+    }
+    // 回退：加载所有产品，但只选择有数据的产品
     const res = await getProducts()
     if (res && Array.isArray(res) && res.length > 0) {
       products.value = res
-      // 使用第一个有数据的产品（按最近30天数据量排序）
-      selectedProductId.value = res[0].id
-      return true
+      const withData = res.filter(p => p.recent_count > 0)
+      selectedProductId.value = withData.length > 0 ? withData[0].id : null
+      return withData.length > 0
     }
     return false
   } catch (error) {
@@ -445,7 +455,7 @@ const loadProducts = async () => {
 
 const loadDashboardSummary = async () => {
   try {
-    const res = await getDashboardSummary()
+    const res = await getCollectionSummary()
     if (res && res.summary) {
       Object.assign(summary, res.summary)
     }
@@ -457,10 +467,12 @@ const loadDashboardSummary = async () => {
 const loadPriceTrend = async () => {
   if (!selectedProductId.value) return
   try {
-    const res = await getPriceTrend({
+    const params = {
       product_id: selectedProductId.value,
       days: selectedDays.value
-    })
+      // 不传 end_date，让 API 自动获取到最新数据
+    }
+    const res = await getPriceTrend(params)
     console.log('价格走势API响应:', res)
     // 处理响应数据 - API返回 dates 和 prices
     if (res && Array.isArray(res.dates) && res.dates.length > 0) {
@@ -483,7 +495,8 @@ const loadPriceTrend = async () => {
 const loadProvinceHeatmap = async () => {
   try {
     const res = await getProvinceHeatmap({
-      product_id: selectedProductId.value || undefined
+      product_id: selectedProductId.value || undefined,
+      days: 180  // 查询半年数据，确保能查到历史数据
     })
     console.log('热力图API响应:', res)
     if (res) {
@@ -523,7 +536,8 @@ const loadRegionComparison = async () => {
   }
   try {
     const res = await getRegionComparison({
-      product_id: productId
+      product_id: productId,
+      days: 180  // 查询半年数据，确保能查到历史数据
     })
     console.log('地区对比API响应:', res)
     // 处理响应数据
@@ -550,36 +564,43 @@ const loadRegionComparison = async () => {
 const loadPricePrediction = async () => {
   if (!selectedProductId.value) return
   try {
-    const res = await getPricePrediction({
+    const params = {
       product_id: selectedProductId.value,
       days: predictionDays.value
-    })
-    if (res) {
-      if (res.success) {
-        predictionData.value = {
-          historical: res.historical,
-          prediction: res.prediction
-        }
-        updatePredictionChart()
-      } else {
-        console.warn('价格预测提示:', res.error)
-        // 清空预测数据并显示提示
-        predictionData.value = {
-          historical: { dates: [], prices: [] },
-          prediction: { dates: [], prices: [] }
-        }
-        updatePredictionChart()
-      }
     }
+    // 如果选择了省份，传递省份参数
+    if (selectedProvince.value) {
+      params.province = selectedProvince.value
+    }
+    const res = await getPricePrediction(params)
+    updatePredictionStatus(res)
+    if (res && res.success) {
+      predictionData.value.prediction = res.prediction || { dates: [], prices: [] }
+      // 更新可用省份列表
+      if (res.available_provinces && res.available_provinces.length > 0) {
+        availableProvinces.value = res.available_provinces
+      }
+    } else {
+      predictionData.value.prediction = { dates: [], prices: [] }
+    }
+    updatePredictionChart()
   } catch (error) {
+    predictionStatus.value = '加载失败'
     console.error('加载预测数据失败:', error)
   }
 }
 
 const onProductChange = () => {
+  // 切换产品时清空省份选择，重新获取可用省份
+  selectedProvince.value = null
   loadPriceTrend()
   loadProvinceHeatmap()
   loadRegionComparison()
+  loadPricePrediction()
+}
+
+const onProvinceChange = () => {
+  // 省份改变时重新加载预测
   loadPricePrediction()
 }
 
@@ -597,40 +618,30 @@ const handleResize = () => {
 onMounted(async () => {
   loading.value = true
   try {
-    // 1. 先加载产品列表（必须优先）
+    // 1. 先初始化图表（图表必须先 init，否则无法 setOption）
+    await nextTick()
+    initMapChart()
+    initLineChart()
+    initRegionChart()
+    initPredictionChart()
+
+    // 2. 再加载数据（数据到达后直接 updateChart，图表已就绪）
     const hasProducts = await loadProducts()
 
-    // 2. 如果有产品，加载其他数据（忽略错误继续）
     if (hasProducts && selectedProductId.value) {
-      try {
-        await loadDashboardSummary()
-      } catch (e) { console.warn('摘要加载失败:', e) }
-      try {
-        await loadPriceTrend()
-      } catch (e) { console.warn('价格走势加载失败:', e) }
-      try {
-        await loadProvinceHeatmap()
-      } catch (e) { console.warn('热力图加载失败:', e) }
-      try {
-        await loadRegionComparison()
-      } catch (e) { console.warn('地区对比加载失败:', e) }
-      try {
-        await loadPricePrediction()
-      } catch (e) { console.warn('预测加载失败:', e) }
+      // 并行加载所有数据
+      await Promise.allSettled([
+        loadDashboardSummary(),
+        loadPriceTrend(),
+        loadProvinceHeatmap(),
+        loadRegionComparison(),
+        loadPricePrediction(),
+      ])
     }
   } catch (error) {
     console.error('初始化失败:', error)
   } finally {
-    // 3. 数据加载完成后，初始化所有图表（延迟确保 DOM 就绪）
     loading.value = false
-    await nextTick()
-    setTimeout(() => {
-      initMapChart()
-      initLineChart()
-      initRegionChart()
-      initPredictionChart()
-      window.addEventListener('resize', handleResize)
-    }, 100)
   }
 })
 
